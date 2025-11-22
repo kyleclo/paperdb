@@ -16,30 +16,37 @@ python eval/score.py
 
 ### data format
 
-Each paper in `data/raw/papers.jsonl` contains:
+Each paper in `data/raw/papers_100.jsonl` contains S2 metadata + full paragraph text:
 
 ```json
 {
-  "corpusId": "256697200",
-  "paperId": "8e80efd4c95caa65404b9c273d179f0769c7350c",
-  "title": "MetaExplorer : Facilitating Reasoning with Epistemic Uncertainty in Meta-analysis",
+  "corpusId": "211560654",
+  "paperId": "421eddd6a2c771e87e80eb64fb1328de2db51479",
+  "title": "3D-Auth: Two-Factor Authentication with Personalized 3D-Printed Items",
   "authors": [
-    {
-      "authorId": "144946284",
-      "name": "Alex Kale"
-    },
-    {
-      "authorId": "2205162540",
-      "name": "Sarah Lee"
-    }
+    {"authorId": "3399279", "name": "Karola Marky"},
+    {"authorId": "2057761601", "name": "Martin Schmitz"}
   ],
-  "abstract": "Scientists often use meta-analysis to characterize the impact of an intervention...",
-  "year": 2023,
+  "abstract": "Two-factor authentication is a widely recommended security mechanism...",
+  "year": 2020,
   "venue": "International Conference on Human Factors in Computing Systems",
-  "citationCount": 4,
-  "publicationDate": "2023-04-23",
-  "publicationTypes": ["JournalArticle", "Conference"],
-  "fieldsOfStudy": ["Computer Science"]
+  "citationCount": 36,
+  "publicationDate": "2020-04-21",
+  "publicationTypes": ["JournalArticle", "Book", "Conference"],
+  "fieldsOfStudy": ["Computer Science"],
+  "paragraphCount": 8,
+  "paragraphs": [
+    {
+      "paragraphId": "34028",
+      "sectionTitle": "INTRODUCTION",
+      "text": "In two-factor authentication, two of the following authentication factors...",
+      "spans": "[{\"corpusId\": 23796197, \"span\": \"[48,\"...}]",
+      "conference": "chi",
+      "year": 2020,
+      "likelyRelatedWorkSection": false,
+      "refCount": 4
+    }
+  ]
 }
 ```
 

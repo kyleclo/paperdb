@@ -13,7 +13,7 @@ def load_jsonl(path: str) -> list[dict]:
 
 def calculate_metrics(results: list[dict]) -> dict:
     total = len(results)
-    hits_at_1 = sum(1 for r in results if r["expected"] == r["retrieved"][0])
+    hits_at_1 = sum(1 for r in results if r["expected"] in r["retrieved"][:1])
     hits_at_5 = sum(1 for r in results if r["expected"] in r["retrieved"][:5])
 
     mrr = sum(

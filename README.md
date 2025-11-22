@@ -50,6 +50,25 @@ Each paper in `data/raw/papers_100.jsonl` contains S2 metadata + full paragraph 
 }
 ```
 
+### synthetic query format
+
+The synthetic query datasets in `data/synth/*/train.jsonl` and `data/synth/*/test.jsonl` follow this schema:
+
+```json
+{
+  "query": "Computer Science 2020 International Conference on Human Factors in Computing Systems Karola Marky 3D-Auth: Two-Factor Authentication with Personalized 3D-Printed Items",
+  "paperId": "421eddd6a2c771e87e80eb64fb1328de2db51479",
+  "relevance": 1
+}
+```
+
+Where:
+- `query`: A synthetic query string generated from paper metadata
+  - `title_as_query/`: Uses the paper title (lowercased)
+  - `metadata_as_query/`: Uses title, year, venue, field of study, and first author name in random order
+- `paperId`: The unique identifier of the relevant paper
+- `relevance`: Always 1 (indicating this paper is relevant to the query)
+
 ### structure
 
 ```

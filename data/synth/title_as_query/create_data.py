@@ -3,6 +3,10 @@ import random
 import sys
 from pathlib import Path
 
+# Add parent directory to path to import utils
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils import clean_query
+
 
 def create_title_queries(input_path, output_dir, train_ratio=0.8, seed=42):
     """
@@ -44,7 +48,7 @@ def create_title_queries(input_path, output_dir, train_ratio=0.8, seed=42):
     train_path = output_dir / "train.jsonl"
     with open(train_path, 'w') as f:
         for paper in train_papers:
-            query = paper['title'].lower()
+            query = clean_query(paper['title'])
             entry = {
                 'query': query,
                 'paperId': paper['paperId'],
@@ -58,7 +62,7 @@ def create_title_queries(input_path, output_dir, train_ratio=0.8, seed=42):
     test_path = output_dir / "test.jsonl"
     with open(test_path, 'w') as f:
         for paper in test_papers:
-            query = paper['title'].lower()
+            query = clean_query(paper['title'])
             entry = {
                 'query': query,
                 'paperId': paper['paperId'],

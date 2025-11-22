@@ -1,0 +1,114 @@
+{
+  "International Conference on Human Factors in Computing Systems": [
+    "CHI",
+    "ACM CHI",
+    "SIGCHI",
+    "CHI Conference",
+    "ACM SIGCHI Conference on Human Factors in Computing Systems"
+  ],
+  "Conference on Empirical Methods in Natural Language Processing": [
+    "EMNLP",
+    "EMNLP Conference"
+  ],
+  "Annual Meeting of the Association for Computational Linguistics": [
+    "ACL",
+    "ACL Conference",
+    "ACL Annual Meeting"
+  ],
+  "ACM Symposium on User Interface Software and Technology": [
+    "UIST",
+    "ACM UIST",
+    "User Interface Software and Technology"
+  ],
+  "Proc. ACM Hum. Comput. Interact.": [
+    "PACM HCI",
+    "PACMHCI",
+    "Proceedings of the ACM on Human-Computer Interaction"
+  ],
+  "Conference on Computer Supported Cooperative Work": [
+    "CSCW",
+    "ACM CSCW",
+    "Computer Supported Cooperative Work"
+  ],
+  "CSCW Companion": [
+    "CSCW Companion",
+    "Computer Supported Cooperative Work Companion"
+  ],
+  "arXiv.org": [
+    "arXiv",
+    "arxiv"
+  ],
+  "CHI Extended Abstracts": [
+    "CHI EA",
+    "CHI Extended Abstracts",
+    "ACM CHI Extended Abstracts"
+  ],
+  "EMNLP-IJCNLP": [
+    "EMNLP-IJCNLP",
+    "EMNLP IJCNLP"
+  ],
+  "ACM Trans. Comput. Hum. Interact.": [
+    "TOCHI",
+    "ACM TOCHI",
+    "Transactions on Computer-Human Interaction",
+    "ACM Transactions on Computer-Human Interaction"
+  ],
+  "International Conference for High Performance Computing, Networking, Storage and Analysis": [
+    "SC",
+    "Supercomputing",
+    "SC Conference"
+  ],
+  "SIGGRAPH Studio": [
+    "SIGGRAPH Studio",
+    "SIGGRAPH"
+  ],
+  "Information and Media Technologies": [
+    "IMT",
+    "Information and Media Technologies"
+  ],
+  "Informatik-Spektrum": [
+    "Informatik-Spektrum"
+  ],
+  "EMNLP-IJCNLP 2019": [
+    "EMNLP-IJCNLP 2019",
+    "EMNLP-IJCNLP",
+    "EMNLP IJCNLP 2019"
+  ],
+  "IEEE/ACM International Conference on Human-Robot Interaction": [
+    "HRI",
+    "IEEE/ACM HRI",
+    "Human-Robot Interaction",
+    "International Conference on Human-Robot Interaction"
+  ],
+  "International Conference on Language Resources and Evaluation": [
+    "LREC",
+    "Language Resources and Evaluation Conference"
+  ],
+  "Proceedings of the 2021 CHI Conference on Human Factors in Computing Systems": [
+    "CHI 2021",
+    "ACM CHI 2021",
+    "CHI '21"
+  ],
+  "Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing": [
+    "ACL-IJCNLP 2021",
+    "ACL 2021",
+    "ACL-IJCNLP"
+  ],
+  "International Conference on Learning Analytics and Knowledge": [
+    "LAK",
+    "Learning Analytics and Knowledge",
+    "LAK Conference"
+  ],
+  "International Conference on Computer Graphics and Interactive Techniques": [
+    "SIGGRAPH",
+    "ACM SIGGRAPH"
+  ],
+  "SIGGRAPH ASIA Emerging Technologies": [
+    "SIGGRAPH Asia",
+    "SIGGRAPH ASIA ET"
+  ],
+  "Industrial Vehicle Technology International": [
+    "IVTI",
+    "Industrial Vehicle Technology International"
+  ]
+}

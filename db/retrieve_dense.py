@@ -23,8 +23,6 @@ def main():
                        help='Path to the output results file (JSONL format)')
     parser.add_argument('--k', type=int, default=100,
                        help='Number of units to retrieve per query (default: 100)')
-    parser.add_argument('--method', type=str, default='dense', choices=['dense', 'sql'],
-                       help='Retrieval method (default: dense)')
     
     args = parser.parse_args()
     
@@ -34,12 +32,8 @@ def main():
     print(f"Loaded {len(queries)} queries from {queries_path}")
 
     # Initialize retriever
-    if args.method == "dense":
-        retriever = DenseRetriever(index_dir=args.index_path)
-        retriever.load()
-    else:
-        retriever = SQLRetriever()
-        retriever.load()
+    retriever = DenseRetriever(index_dir=args.index_path)
+    retriever.load()
 
     # Retrieve for each query
     results = []

@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Results
+results.jsonl
+
+# Large data files (keep samples only)
+data/raw/papers.jsonl
+data/raw/papers_with_passages.jsonl
+data/raw/paper_id_to_paragraphs.jsonl
+data/raw/paragraphs.csv
+data/raw/embeddings.no_embedding.csv
+
+# API keys
+s2_api_key.txt
+
+# Temporary/test files
+test_s2_api.py
+fetch_paper_metadata.py
+download_dataset.py
+dataset_download.log
+data/raw/prompts.py
+
+# Database indexes
+db/retrieval/index.pkl
+db/sql/papers.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store

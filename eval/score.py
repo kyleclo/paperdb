@@ -1,4 +1,5 @@
 import json
+import argparse
 from pathlib import Path
 
 
@@ -30,11 +31,19 @@ def calculate_metrics(results: list[dict]) -> dict:
 
 
 def main():
-    results_path = Path(__file__).parent.parent / "results.jsonl"
-    results = load_jsonl(results_path)
+    parser = argparse.ArgumentParser(description="Calculate retrieval metrics from results file")
+    parser.add_argument("results_file", type=str, help="Path to the results JSONL file")
+    parser.add_argument("metrics_file", type=str, help="Path to the output metrics JSON file")
+    args = parser.parse_args()
 
+    results = load_jsonl(args.results_file)
     metrics = calculate_metrics(results)
 
+    # Write metrics to file
+    with open(args.metrics_file, 'w') as f:
+        json.dump(metrics, f, indent=2)
+
+    print(f"Metrics written to {args.metrics_file}")
     print("\nEvaluation Metrics:")
     print(f"  Hits@1: {metrics['hits@1']:.2%}")
     print(f"  Hits@5: {metrics['hits@5']:.2%}")

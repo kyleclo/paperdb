@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 
@@ -30,12 +31,16 @@ def calculate_metrics(results: list[dict]) -> dict:
 
 
 def main():
-    results_path = Path(__file__).parent.parent / "results.jsonl"
+    if len(sys.argv) < 2:
+        print("Usage: python score.py <results_file>")
+        sys.exit(1)
+
+    results_path = sys.argv[1]
     results = load_jsonl(results_path)
 
     metrics = calculate_metrics(results)
 
-    print("\nEvaluation Metrics:")
+    print(f"\nEvaluation Metrics for: {results_path}")
     print(f"  Hits@1: {metrics['hits@1']:.2%}")
     print(f"  Hits@5: {metrics['hits@5']:.2%}")
     print(f"  MRR: {metrics['mrr']:.3f}")

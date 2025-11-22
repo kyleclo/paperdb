@@ -1,0 +1,4 @@
+{"query": "adversarial training for generative models", "expected": "paper_007", "retrieved": ["paper_007", "paper_002", "paper_004", "paper_010", "paper_005"]}
+{"query": "deep Q-learning for game playing", "expected": "paper_008", "retrieved": ["paper_008", "paper_006", "paper_004", "paper_005", "paper_001"]}
+{"query": "attention mechanism for neural machine translation", "expected": "paper_009", "retrieved": ["paper_009", "paper_001", "paper_003", "paper_005", "paper_002"]}
+{"query": "adaptive learning rate optimization", "expected": "paper_010", "retrieved": ["paper_010", "paper_008", "paper_006", "paper_003", "paper_009"]}

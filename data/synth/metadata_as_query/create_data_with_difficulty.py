@@ -59,11 +59,14 @@ def create_synthetic_query(paper, venue_mappings=None, title_dropout=0.0, metada
     if paper.get('authors') and len(paper['authors']) > 0 and random.random() > metadata_dropout:
         fields.append(paper['authors'][0]['name'])
 
-    # Randomly shuffle the fields
-    random.shuffle(fields)
+    # Clean each field individually
+    cleaned_fields = [clean_query(field) for field in fields]
 
-    # Join with whitespace
-    return ' '.join(fields)
+    # Randomly shuffle the fields
+    random.shuffle(cleaned_fields)
+
+    # Join with commas (like content queries)
+    return ', '.join(cleaned_fields)
 
 
 def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, metadata_dropout=0.0, seed=42):
@@ -107,11 +110,8 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
         for line in infile:
             paper = json.loads(line)
 
-            # Create synthetic query
+            # Create synthetic query (already cleaned within the function)
             query = create_synthetic_query(paper, venue_mappings, title_dropout, metadata_dropout)
-
-            # Clean the query
-            query = clean_query(query)
 
             # Calculate overlap with title for statistics
             if paper.get('title'):

@@ -272,6 +272,7 @@ From OpenAlex affiliation data:
 - `5_build_author_affiliation_map.py` - Build author→affiliation map (OpenAlex)
 - `6_build_venue_mapping.py` - Build venue normalization map
 - `7_add_venue_type_tag.py` - Add main/workshop tags to papers
+- `8_upload_to_huggingface.py` - Upload dataset to HuggingFace Hub
 
 ### Datasets
 - `dblp-nlp-ml-ai-oa-recent-subset/` - HuggingFace dataset (31,442 papers)
@@ -284,6 +285,32 @@ From OpenAlex affiliation data:
 - `venue_to_id.json` - Venue string → canonical venue (428 → 223 mappings)
 - `venue_stats.json` - Canonical venue statistics with variants (223 venues)
 
+
+---
+
+## Uploading to HuggingFace
+
+**Script**: `8_upload_to_huggingface.py`
+
+```bash
+# One-time setup: Login to HuggingFace
+huggingface-cli login
+
+# Upload dataset (public)
+python raw/8_upload_to_huggingface.py kylel/dblp-papers-fulltext
+
+# Upload dataset (private)
+python raw/8_upload_to_huggingface.py kylel/dblp-papers-fulltext --private
+```
+
+**Files uploaded:**
+- `dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl` (589 MB)
+- `author_affiliation_map.json` (4.4 MB)
+- `venue_to_id.json` (38 KB)
+- `venue_stats.json` (54 KB)
+- `README.md` (documentation)
+
+The script asks for confirmation before uploading.
 
 ---
 

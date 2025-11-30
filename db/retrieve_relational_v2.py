@@ -106,7 +106,13 @@ The database has Papers, Authors, PaperAuthors, Institutions, and AuthorInstitut
 Use canonical_venue for conference queries (includes workshops).
 Use venue_type to distinguish main vs workshop papers."""
     elif prompt_type == 'minimal':
-        system_prompt = "Generate a PostgreSQL SQL query based on the database schema and user query."
+        system_prompt = """Generate a PostgreSQL SQL query based on the database schema and user query.
+
+Key requirements:
+- Return ONLY the SQL query, no explanations or markdown formatting
+- Always select at least the corpus_id column
+- Order by relevance
+- Limit to 100 results maximum"""
     else:
         raise ValueError(f"Invalid prompt_type: {prompt_type}. Must be 'minimal' or 'detailed'")
 

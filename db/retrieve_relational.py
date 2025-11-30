@@ -78,7 +78,7 @@ Given a database schema and a natural language query (which might be conversatio
 
 Key requirements:
 - Return ONLY the SQL query, no explanations or markdown formatting
-- Always select at least the paper_id column
+- Return the paper_id column in the SELECT clause
 - Use ILIKE for case-insensitive partial text matching
 - Use DISTINCT when joining with PaperAuthors to avoid duplicate papers
 - Order by relevance (typically citation_count DESC, year DESC)
@@ -87,7 +87,13 @@ Key requirements:
 
 The database has Papers, Authors, and PaperAuthors tables. Use JOINs appropriately."""
     elif prompt_type == 'minimal':
-        system_prompt = "Generate a PostgreSQL SQL query based on the database schema and user query."
+        system_prompt = """Generate a PostgreSQL SQL query based on the database schema and user query.
+
+Key requirements:
+- Return ONLY the SQL query, no explanations or markdown formatting
+- Return the paper_id column in the SELECT clause
+- Order by relevance
+- Limit to 100 results maximum"""
     else:
         raise ValueError(f"Invalid prompt_type: {prompt_type}. Must be 'minimal' or 'detailed'")
 
@@ -169,8 +175,12 @@ def execute_sql_query(conn, sql_query: str) -> List[Dict[str, Any]]:
         return results
         
     except Exception as e:
-        print(f"Error executing SQL query: {e}")
+        # Rollback the transaction to clear the error state
+        conn.rollback()
+        print(f"Error executing SQL query: {e}\nSQL: {sql_query}")
         return None
+    finally:
+        cursor.close()
 
 
 def execute_query_with_sql(conn, user_query: str, llm_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -241,7 +251,7 @@ def main():
                        help='OpenAI API key (or set OPENAI_API_KEY env variable)')
     parser.add_argument('--model', type=str, default='gpt-5.1',
                        help='OpenAI model to use (default: gpt-5.1)')
-    parser.add_argument('--system_prompt', type=str, choices=['minimal', 'detailed'], default='detailed',
+    parser.add_argument('--system_prompt', type=str, choices=['minimal', 'detailed'],
                        help='System prompt type: "minimal" or "detailed" (full instructions) (default: detailed)')
     
     args = parser.parse_args()
@@ -319,9 +329,9 @@ def main():
             
             all_results.append(result)
             
-            # Print progress
-            if (i + 1) % 10 == 0:
-                print(f"  Processed {i + 1}/{len(queries)} queries...")
+            # # Print progress
+            # if (i + 1) % 10 == 0:
+            #     print(f"  Processed {i + 1}/{len(queries)} queries...")
         
         # Save results
         output_path = Path(args.output_file)

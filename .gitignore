@@ -32,6 +32,9 @@ fetch_paper_metadata.py
 download_dataset.py
 dataset_download.log
 data/raw/prompts.py
+data/dblp-papers-fulltext
+data/index-para-abs
+data/index-all-units
 
 # Database indexes
 db/retrieval/index.pkl

@@ -12,7 +12,7 @@ dependencies = [
     "transformers>=4.51.0",
     "torch==2.6.0",
     "faiss-cpu",
-    "psycopg2",
+    # "psycopg2",
     "openai",
     "nest-asyncio",
 ]

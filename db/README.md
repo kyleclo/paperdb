@@ -69,12 +69,14 @@ CREATE TABLE PaperAuthors (
 ```sql
 CREATE TABLE Institutions (
     institution_id VARCHAR(500) PRIMARY KEY,
-    display_name TEXT NOT NULL,
+    display_name TEXT,
     ror VARCHAR(255),            -- Research Organization Registry ID
     country_code VARCHAR(10),
     institution_type VARCHAR(50) -- 'education', 'government', 'nonprofit', etc.
 );
 ```
+
+**Coverage:** 1,796 institutions from 13,830 authors (35.9% of papers)
 
 ### AuthorInstitutions
 ```sql
@@ -140,6 +142,32 @@ python db/index_relational_v2.py \
 ```
 
 **Time estimate:** ~2-3 minutes for 22,371 papers
+
+### 5. Test Text-to-SQL Retrieval (Optional)
+
+```bash
+# Set OpenAI API key
+export OPENAI_API_KEY="your-api-key"
+
+# Run smoke test with 20 natural language queries
+python db/retrieve_relational_v2.py \
+  --query_file db/test_retrieve_relational_v2.jsonl \
+  --output_file db/test_results_v2.jsonl \
+  --db_name paperdb_test \
+  --db_user $USER \
+  --db_password "" \
+  --model gpt-4o
+
+# Check results
+python -c "
+import json
+success = sum(1 for line in open('db/test_results_v2.jsonl') if json.loads(line).get('count', 0) > 0)
+total = sum(1 for _ in open('db/test_results_v2.jsonl'))
+print(f'Success: {success}/{total} queries returned results')
+"
+```
+
+**Expected:** ~18/20 queries should successfully return papers
 
 ## Example SQL Queries
 

@@ -100,7 +100,7 @@ def create_schema(conn):
     cursor.execute("""
         CREATE TABLE Institutions (
             institution_id VARCHAR(500) PRIMARY KEY,
-            display_name TEXT NOT NULL,
+            display_name TEXT,
             ror VARCHAR(255),
             country_code VARCHAR(10),
             institution_type VARCHAR(50)

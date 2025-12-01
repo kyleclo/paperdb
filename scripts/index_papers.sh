@@ -4,7 +4,7 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel)
 source $PROJECT_ROOT/.venv/bin/activate
 
 # # start the postgres server
-# postgres -D /mmfs1/home/chentong/ws/cse544/project/.db
+# pg_ctl -D /mmfs1/home/chentong/ws/cse544/project/.db start
 # # create the database
 # createdb $DB_NAME
 
@@ -45,12 +45,12 @@ DB_PORT=${PAPERDB_PORT:-5432}
 
 # # Index dense retrieval (paragraphs and abstracts only)
 # echo "Building dense index with paragraphs and abstracts..."
-# python $PROJECT_ROOT/db/index_dense_v2.py \
-#     --paper_file $PROJECT_ROOT/data/dblp-papers-fulltext/dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl \
-#     --retrieval_units paragraphs abstracts \
-#     --output_dir $PROJECT_ROOT/data/index-para-abs-v2 \
-#     --model_name Qwen/Qwen3-Embedding-0.6B \
-#     --batch_size 32
+python $PROJECT_ROOT/db/index_dense_v2.py \
+    --paper_file $PROJECT_ROOT/data/dblp-papers-fulltext/dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl \
+    --retrieval_units paragraphs abstracts \
+    --output_dir $PROJECT_ROOT/data/index-para-abs-v2 \
+    --model_name Qwen/Qwen3-Embedding-0.6B \
+    --batch_size 32
 
 # Index dense retrieval (paragraphs and abstracts only)
 echo "Building dense index with all units..."

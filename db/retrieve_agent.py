@@ -26,65 +26,82 @@ def connect_db(db_name: str, db_user: str, db_password: str,
 
 
 def get_database_schema() -> str:
-    """Get database schema information for SQL generation."""
+    """Get database schema information for SQL generation (v2 schema)."""
     return """
-DATABASE SCHEMA:
+DATABASE SCHEMA (v2):
 
-Table: Papers
-- paper_id (VARCHAR, PRIMARY KEY): Unique paper identifier
-- corpus_id (VARCHAR): Corpus identifier
+Table: Papers (metadata only, no full text stored)
+- corpus_id (INTEGER, PRIMARY KEY): Semantic Scholar corpus ID
 - title (TEXT, NOT NULL): Paper title
-- abstract (TEXT): Paper abstract
-- venue (VARCHAR): Publication venue (conference/journal name)
-- year (INTEGER): Publication year
-- publication_date (VARCHAR): Full publication date
+- abstract (TEXT): Paper abstract (97.2% coverage)
+- venue (VARCHAR): Original venue string
+- venue_type (VARCHAR): 'main' or 'workshop'
+- canonical_venue (VARCHAR): Normalized venue (workshops → main conference)
+- year (INTEGER): Publication year (100% coverage)
+- month (INTEGER): Publication month 1-12 (95.7% coverage)
 - citation_count (INTEGER): Number of citations
-- open_access_url (TEXT): URL to open access PDF
-- open_access_status (VARCHAR): Open access status
-- open_access_license (VARCHAR): License type
 
 Table: Authors
-- author_id (VARCHAR, PRIMARY KEY): Unique author identifier
+- author_id (VARCHAR, PRIMARY KEY): Semantic Scholar author ID
 - name (VARCHAR, NOT NULL): Author name
 
 Table: PaperAuthors (Junction table for many-to-many relationship)
-- paper_id (VARCHAR, FOREIGN KEY → Papers.paper_id): Reference to paper
+- corpus_id (INTEGER, FOREIGN KEY → Papers.corpus_id): Reference to paper
 - author_id (VARCHAR, FOREIGN KEY → Authors.author_id): Reference to author
-- author_position (INTEGER): Author position in paper (0 = first author)
-- PRIMARY KEY: (paper_id, author_id)
+- author_position (INTEGER): Author position (0 = first author)
+- PRIMARY KEY: (corpus_id, author_id)
+
+Table: Institutions
+- institution_id (VARCHAR, PRIMARY KEY): OpenAlex institution ID
+- display_name (TEXT): Institution name
+- ror (VARCHAR): Research Organization Registry ID
+- country_code (VARCHAR): ISO country code (e.g., 'US', 'CN', 'GB')
+- institution_type (VARCHAR): Type (e.g., 'education', 'government', 'nonprofit')
+
+Table: AuthorInstitutions (Junction table for many-to-many relationship)
+- author_id (VARCHAR, FOREIGN KEY → Authors.author_id): Reference to author
+- institution_id (VARCHAR, FOREIGN KEY → Institutions.institution_id): Reference to institution
+- PRIMARY KEY: (author_id, institution_id)
 
 RELATIONSHIPS:
 - Papers ←→ Authors (many-to-many through PaperAuthors)
-- To get papers with their authors: JOIN Papers with PaperAuthors with Authors
-- To filter by author: JOIN through PaperAuthors and filter on Authors.name
-- author_position indicates author order (0 is first author, 1 is second, etc.)
+- Authors ←→ Institutions (many-to-many through AuthorInstitutions)
+- To get papers with authors: JOIN Papers with PaperAuthors with Authors
+- To get author affiliations: JOIN Authors with AuthorInstitutions with Institutions
+- To filter by institution: JOIN through PaperAuthors, AuthorInstitutions, and Institutions
+
+IMPORTANT NOTES:
+- Use canonical_venue to query across workshops (e.g., canonical_venue='ACL' includes BioNLP@ACL)
+- Use venue_type to filter main vs workshop papers
+- Only 35.9% of papers have affiliation data (coverage limitation)
+- Full text NOT in database - query source JSONL by corpus_id if needed
 
 INDEXES:
-- idx_papers_year on Papers(year)
-- idx_papers_venue on Papers(venue)
-- idx_papers_citation_count on Papers(citation_count)
-- idx_authors_name on Authors(name)
+- Papers: year, month, canonical_venue, venue_type, citation_count
+- Authors: name
+- Institutions: country_code, institution_type
 """
 
 
 def execute_sql_query(conn, sql_query: str) -> Optional[List[str]]:
-    """Execute SQL query and return list of paper_ids."""
+    """Execute SQL query and return list of corpus_ids (as strings for compatibility)."""
     cursor = conn.cursor()
     
     try:
         cursor.execute(sql_query)
         rows = cursor.fetchall()
         
-        # Try to find paper_id column
+        # Try to find corpus_id column (v2 schema uses corpus_id as INTEGER primary key)
         column_names = [desc[0] for desc in cursor.description]
-        if 'paper_id' not in column_names:
-            print(f"Warning: SQL query did not return paper_id column")
+        if 'corpus_id' not in column_names:
+            print(f"Warning: SQL query did not return corpus_id column")
             return []
         
-        paper_id_idx = column_names.index('paper_id')
-        paper_ids = [row[paper_id_idx] for row in rows if row[paper_id_idx]]
+        corpus_id_idx = column_names.index('corpus_id')
+        # Convert to strings for compatibility with dense retriever output
+        corpus_ids = [str(row[corpus_id_idx]) for row in rows if row[corpus_id_idx] is not None]
         
-        return paper_ids
+        return corpus_ids
         
     except Exception as e:
         conn.rollback()
@@ -94,87 +111,83 @@ def execute_sql_query(conn, sql_query: str) -> Optional[List[str]]:
         cursor.close()
 
 
-def get_paper_metadata(conn, paper_ids: List[str]) -> List[Dict[str, Any]]:
-    """Get paper metadata (title, authors, abstract) from database."""
-    if not paper_ids:
+def get_paper_metadata_from_index(dense_retriever: DenseRetriever, corpus_ids: List[str]) -> List[Dict[str, Any]]:
+    """Get paper metadata from dense retrieval index.
+    
+    Args:
+        dense_retriever: DenseRetriever instance with loaded index
+        corpus_ids: List of corpus IDs (as strings)
+    
+    Returns:
+        List of paper metadata dictionaries with 'corpus_id' key (as string for compatibility)
+    """
+    if not corpus_ids:
         return []
     
-    cursor = conn.cursor()
+    metadata = []
+    # Build a lookup dict from paper_objs
+    paper_lookup = {}
+    for paper_obj in dense_retriever.paper_objs:
+        corpus_id = str(paper_obj.get("corpus_id", paper_obj.get("paper_id", "")))
+        paper_lookup[corpus_id] = paper_obj
     
-    try:
-        # Build query to get papers and their authors
-        placeholders = ','.join(['%s'] * len(paper_ids))
-        query = f"""
-        SELECT 
-            p.paper_id,
-            p.title,
-            p.abstract,
-            p.year,
-            p.venue,
-            p.citation_count,
-            COALESCE(
-                json_agg(
-                    json_build_object('name', a.name, 'position', pa.author_position)
-                    ORDER BY pa.author_position
-                ) FILTER (WHERE a.author_id IS NOT NULL),
-                '[]'
-            ) as authors
-        FROM Papers p
-        LEFT JOIN PaperAuthors pa ON p.paper_id = pa.paper_id
-        LEFT JOIN Authors a ON pa.author_id = a.author_id
-        WHERE p.paper_id IN ({placeholders})
-        GROUP BY p.paper_id, p.title, p.abstract, p.year, p.venue, p.citation_count
-        """
-        
-        cursor.execute(query, paper_ids)
-        rows = cursor.fetchall()
-        
-        metadata = []
-        for row in rows:
-            paper_id, title, abstract, year, venue, citation_count, authors_json = row
-            authors = json.loads(authors_json) if isinstance(authors_json, str) else authors_json
-            author_names = [a['name'] for a in sorted(authors, key=lambda x: x['position'])]
+    # Get metadata for requested corpus_ids in order
+    for cid in corpus_ids:
+        cid_str = str(cid)
+        if cid_str in paper_lookup:
+            paper_obj = paper_lookup[cid_str]
+            authors = paper_obj.get('authors', [])
+            # Extract author names
+            author_names = []
+            if authors:
+                for author in authors:
+                    if isinstance(author, dict):
+                        author_names.append(author.get('name', ''))
+                    elif isinstance(author, str):
+                        author_names.append(author)
             
             metadata.append({
-                'paper_id': paper_id,
-                'title': title,
-                'abstract': abstract or '',
-                'year': year,
-                'venue': venue or '',
-                'citation_count': citation_count or 0,
+                'corpus_id': cid_str,
+                'title': paper_obj.get('title', ''),
+                'abstract': paper_obj.get('abstract', ''),
+                'year': paper_obj.get('year'),
+                'venue': paper_obj.get('venue', ''),
+                'citation_count': paper_obj.get('citation_count', 0),
                 'authors': author_names
             })
-        
-        # Maintain order of paper_ids
-        metadata_dict = {m['paper_id']: m for m in metadata}
-        ordered_metadata = [metadata_dict[pid] for pid in paper_ids if pid in metadata_dict]
-        
-        return ordered_metadata
-        
-    except Exception as e:
-        print(f"Error getting paper metadata: {e}")
-        return []
-    finally:
-        cursor.close()
+    
+    return metadata
 
 
-def format_paper_metadata_for_prompt(papers: List[Dict[str, Any]]) -> str:
-    """Format paper metadata as a readable list for the agent."""
+def format_paper_metadata_for_prompt(papers: List[Dict[str, Any]], max_papers: int = 10) -> str:
+    """Format paper metadata as a readable list for the agent.
+    
+    Shows top max_papers with title and first 500 chars of abstract.
+    """
     if not papers:
         return "No papers retrieved yet."
     
+    # Limit to top max_papers
+    papers_to_show = papers[:max_papers]
+    
     lines = []
-    for i, paper in enumerate(papers, 1):
+    for i, paper in enumerate(papers_to_show, 1):
         authors_str = ', '.join(paper['authors'][:3])
         if len(paper['authors']) > 3:
             authors_str += f' et al. ({len(paper["authors"])} authors)'
         
-        lines.append(f"{i}. [{paper['paper_id']}]")
+        abstract = paper.get('abstract', '')
+        abstract_preview = abstract[:500] + "..." if len(abstract) > 500 else abstract
+        
+        lines.append(f"{i}. [{paper['corpus_id']}]")
         lines.append(f"   Title: {paper['title']}")
         lines.append(f"   Authors: {authors_str}")
         lines.append(f"   Year: {paper.get('year', 'N/A')}, Venue: {paper.get('venue', 'N/A')}, Citations: {paper.get('citation_count', 0)}")
-        lines.append(f"   Abstract: {paper['abstract'][:200]}..." if len(paper['abstract']) > 200 else f"   Abstract: {paper['abstract']}")
+        lines.append(f"   Abstract: {abstract_preview}")
         lines.append("")
+    
+    if len(papers) > max_papers:
+        lines.append(f"... and {len(papers) - max_papers} more papers")
     
     return '\n'.join(lines)
 
@@ -225,7 +238,7 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                     "properties": {
                         "sql_query": {
                             "type": "string",
-                            "description": "A PostgreSQL SQL query to retrieve papers. Must include paper_id in SELECT. Use ILIKE for case-insensitive text matching. Example: SELECT DISTINCT p.paper_id FROM Papers p JOIN PaperAuthors pa ON p.paper_id = pa.paper_id JOIN Authors a ON pa.author_id = a.author_id WHERE a.name ILIKE '%Smith%' ORDER BY p.citation_count DESC LIMIT 50"
+                            "description": "A PostgreSQL SQL query to retrieve papers. Must include corpus_id in SELECT (v2 schema uses corpus_id as INTEGER primary key). Use ILIKE for case-insensitive text matching. Example: SELECT DISTINCT p.corpus_id FROM Papers p JOIN PaperAuthors pa ON p.corpus_id = pa.corpus_id JOIN Authors a ON pa.author_id = a.author_id WHERE a.name ILIKE '%Smith%' ORDER BY p.citation_count DESC LIMIT 50"
                         }
                     },
                     "required": ["sql_query"]
@@ -258,14 +271,14 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "return_papers",
-                "description": "Return your final list of paper IDs as the answer to the user's query. Call this when you're confident you have found the most relevant papers. You should return at most 20 paper IDs ordered by relevance.",
+                "description": "Return your final list of corpus IDs as the answer to the user's query. Call this when you're confident you have found the most relevant papers. You should return at most 20 corpus IDs ordered by relevance.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "paper_ids": {
+                        "corpus_ids": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "List of paper IDs to return, ordered by relevance (most relevant first). Maximum 20 papers.",
+                            "description": "List of corpus IDs to return, ordered by relevance (most relevant first). Maximum 20 papers.",
                             "maxItems": 20
                         },
                         "reasoning": {
@@ -273,11 +286,36 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                             "description": "Brief explanation of why you selected these papers"
                         }
                     },
-                    "required": ["paper_ids"]
+                    "required": ["corpus_ids"]
                 }
             }
         }
     ]
+
+
+def message_to_dict(msg) -> Dict[str, Any]:
+    """Convert a message (dict or ChatCompletionMessage) to a dictionary."""
+    if isinstance(msg, dict):
+        return msg
+    else:
+        # It's a ChatCompletionMessage object
+        result = {
+            "role": msg.role,
+            "content": msg.content
+        }
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            result["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                } for tc in msg.tool_calls
+            ]
+        if hasattr(msg, 'tool_call_id') and msg.tool_call_id:
+            result["tool_call_id"] = msg.tool_call_id
+        return result
 
 
 class AgentRetriever:
@@ -318,7 +356,7 @@ class AgentRetriever:
         turns = []
         total_input_tokens = 0
         total_output_tokens = 0
-        final_paper_ids = []
+        final_corpus_ids = []
         
         for turn_num in range(1, self.max_turns + 1):
             if verbose:
@@ -352,6 +390,29 @@ class AgentRetriever:
                 else:
                     completion_kwargs["max_tokens"] = 2000
                 
+                # Convert messages to JSON-serializable format for logging
+                messages_for_logging = []
+                for msg in messages:
+                    msg_dict = message_to_dict(msg)
+                    # Remove tool_calls from messages for cleaner logging (they're in assistant_message)
+                    if msg_dict.get("role") == "assistant" and "tool_calls" in msg_dict:
+                        msg_dict_log = {k: v for k, v in msg_dict.items() if k != "tool_calls"}
+                        messages_for_logging.append(msg_dict_log)
+                    else:
+                        messages_for_logging.append(msg_dict)
+                
+                # Create JSON payload for logging
+                json_payload = {
+                    "model": completion_kwargs["model"],
+                    "messages": messages_for_logging,
+                    "tools": completion_kwargs["tools"],
+                    "tool_choice": completion_kwargs["tool_choice"]
+                }
+                if "max_completion_tokens" in completion_kwargs:
+                    json_payload["max_completion_tokens"] = completion_kwargs["max_completion_tokens"]
+                if "max_tokens" in completion_kwargs:
+                    json_payload["max_tokens"] = completion_kwargs["max_tokens"]
+                
                 response = self.client.chat.completions.create(**completion_kwargs)
                 
                 # Track tokens
@@ -366,8 +427,19 @@ class AgentRetriever:
                 error_msg = f"Error calling LLM: {e}"
                 if verbose:
                     print(f"[ERROR] {error_msg}")
+                # Try to create json_payload if it wasn't created yet
+                try:
+                    json_payload_for_error = {
+                        "model": self.model,
+                        "messages": [message_to_dict(msg) for msg in messages],
+                        "tools": self.tools,
+                        "tool_choice": "required"
+                    }
+                except:
+                    json_payload_for_error = None
                 turns.append({
                     "turn": turn_num,
+                    "llm_request_json": json_payload_for_error,
                     "error": error_msg
                 })
                 break
@@ -376,10 +448,43 @@ class AgentRetriever:
             if not assistant_message.tool_calls:
                 if verbose:
                     print("[No tool calls made]")
+                # Still log the turn even if no tool calls
+                # json_payload already created above
+                msg_dicts = [message_to_dict(msg) for msg in messages]
+                turns.append({
+                    "turn": turn_num,
+                    "input_messages": [msg for msg in msg_dicts if msg.get("role") != "tool"],
+                    "llm_request_json": json_payload,
+                    "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                    "output_tokens": response.usage.completion_tokens if response.usage else 0,
+                    "assistant_message": {
+                        "content": assistant_message.content,
+                        "tool_calls": []
+                    },
+                    "error": "No tool calls made"
+                })
                 break
             
+            # Convert messages to dicts for logging
+            msg_dicts = [message_to_dict(msg) for msg in messages]
             turn_results = {
                 "turn": turn_num,
+                "input_messages": [msg for msg in msg_dicts if msg.get("role") != "tool"],  # Log prompts (exclude tool messages for brevity)
+                "llm_request_json": json_payload,  # Exact JSON sent to LLM
+                "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "output_tokens": response.usage.completion_tokens if response.usage else 0,
+                "assistant_message": {
+                    "content": assistant_message.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in (assistant_message.tool_calls or [])
+                    ]
+                },
                 "tool_calls": []
             }
             
@@ -397,30 +502,34 @@ class AgentRetriever:
                 # Execute tool
                 if tool_name == "query_relational_db":
                     sql_query = tool_args.get("sql_query", "")
-                    paper_ids = execute_sql_query(self.conn, sql_query)
+                    corpus_ids = execute_sql_query(self.conn, sql_query)
                     
                     # Get metadata for new papers only
-                    new_paper_ids = [pid for pid in paper_ids if pid not in seen_papers]
-                    new_metadata = get_paper_metadata(self.conn, new_paper_ids)
+                    new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
+                    new_metadata = get_paper_metadata_from_index(self.dense_retriever, new_corpus_ids)
                     
                     # Update tracking
-                    seen_papers.update(new_paper_ids)
+                    seen_papers.update(new_corpus_ids)
                     all_paper_metadata.extend(new_metadata)
                     turn_new_papers.extend(new_metadata)
                     
                     tool_result = {
                         "status": "success",
-                        "total_results": len(paper_ids),
-                        "new_results": len(new_paper_ids),
-                        "message": f"Found {len(paper_ids)} papers ({len(new_paper_ids)} new)"
+                        "total_results": len(corpus_ids),
+                        "new_results": len(new_corpus_ids),
+                        "message": f"Found {len(corpus_ids)} papers ({len(new_corpus_ids)} new)",
+                        "corpus_ids": corpus_ids,  # Include all corpus IDs found
+                        "new_corpus_ids": new_corpus_ids,  # Include new corpus IDs
+                        "paper_metadata": new_metadata  # Include full metadata for new papers
                     }
                     
                     if verbose:
-                        print(f"Results: {len(paper_ids)} papers ({len(new_paper_ids)} new)")
+                        print(f"Results: {len(corpus_ids)} papers ({len(new_corpus_ids)} new)")
                     
                     turn_results["tool_calls"].append({
                         "tool": tool_name,
                         "sql": sql_query,
+                        "arguments": tool_args,
                         "result": tool_result
                     })
                     
@@ -436,31 +545,35 @@ class AgentRetriever:
                     k = min(k, 100)  # Cap at 100
                     
                     retrieved_data = self.dense_retriever.retrieve(text_query, k=k)
-                    paper_ids = retrieved_data["paper_ids"]
+                    corpus_ids = retrieved_data["corpus_ids"]
                     
                     # Get metadata for new papers only
-                    new_paper_ids = [pid for pid in paper_ids if pid not in seen_papers]
-                    new_metadata = get_paper_metadata(self.conn, new_paper_ids)
+                    new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
+                    new_metadata = get_paper_metadata_from_index(self.dense_retriever, new_corpus_ids)
                     
                     # Update tracking
-                    seen_papers.update(new_paper_ids)
+                    seen_papers.update(new_corpus_ids)
                     all_paper_metadata.extend(new_metadata)
                     turn_new_papers.extend(new_metadata)
                     
                     tool_result = {
                         "status": "success",
-                        "total_results": len(paper_ids),
-                        "new_results": len(new_paper_ids),
-                        "message": f"Found {len(paper_ids)} papers ({len(new_paper_ids)} new)"
+                        "total_results": len(corpus_ids),
+                        "new_results": len(new_corpus_ids),
+                        "message": f"Found {len(corpus_ids)} papers ({len(new_corpus_ids)} new)",
+                        "corpus_ids": corpus_ids,  # Include all corpus IDs found
+                        "new_corpus_ids": new_corpus_ids,  # Include new corpus IDs
+                        "paper_metadata": new_metadata  # Include full metadata for new papers
                     }
                     
                     if verbose:
-                        print(f"Results: {len(paper_ids)} papers ({len(new_paper_ids)} new)")
+                        print(f"Results: {len(corpus_ids)} papers ({len(new_corpus_ids)} new)")
                     
                     turn_results["tool_calls"].append({
                         "tool": tool_name,
                         "text_query": text_query,
                         "k": k,
+                        "arguments": tool_args,
                         "result": tool_result
                     })
                     
@@ -471,20 +584,21 @@ class AgentRetriever:
                     })
                     
                 elif tool_name == "return_papers":
-                    paper_ids = tool_args.get("paper_ids", [])
+                    corpus_ids = tool_args.get("corpus_ids", tool_args.get("paper_ids", []))  # Support both for backward compatibility
                     reasoning = tool_args.get("reasoning", "")
                     
                     # Validate and limit to 20 papers
-                    final_paper_ids = paper_ids[:20]
+                    final_corpus_ids = corpus_ids[:20]
                     
                     if verbose:
-                        print(f"Returning {len(final_paper_ids)} papers")
+                        print(f"Returning {len(final_corpus_ids)} papers")
                         if reasoning:
                             print(f"Reasoning: {reasoning}")
                     
                     turn_results["tool_calls"].append({
                         "tool": tool_name,
-                        "paper_ids": final_paper_ids,
+                        "arguments": tool_args,
+                        "corpus_ids": final_corpus_ids,
                         "reasoning": reasoning
                     })
                     
@@ -493,27 +607,45 @@ class AgentRetriever:
             turns.append(turn_results)
             
             # If return_papers was called, we're done
-            if final_paper_ids:
+            if final_corpus_ids:
                 break
             
             # Add tool results and paper metadata to conversation
             messages.extend(tool_messages)
             
-            # Add paper metadata for next turn
+            # Add paper metadata for next turn (top 10 papers with title and first 500 chars of abstract)
             if turn_new_papers:
-                metadata_text = format_paper_metadata_for_prompt(turn_new_papers)
-                messages.append({
+                metadata_text = format_paper_metadata_for_prompt(turn_new_papers, max_papers=10)
+                user_message = {
                     "role": "user",
-                    "content": f"Here are the {len(turn_new_papers)} new papers retrieved:\n\n{metadata_text}\n\nYou can continue searching or return your final selection."
-                })
+                    "content": f"Here are the top {min(len(turn_new_papers), 10)} papers retrieved (showing {len(turn_new_papers)} total):\n\n{metadata_text}\n\nYou can continue searching or return your final selection."
+                }
+                messages.append(user_message)
+                # Store the user message in turn results for logging
+                turn_results["user_feedback"] = user_message["content"]
+            
+            # Store tool messages in turn results
+            turn_results["tool_messages"] = [
+                {
+                    "role": tm["role"],
+                    "tool_call_id": tm.get("tool_call_id"),
+                    "content": tm["content"]
+                } for tm in tool_messages
+            ]
         
         return {
             "query": user_query,
-            "retrieved": final_paper_ids,
+            "retrieved": final_corpus_ids,
             "turns": turns,
             "total_papers_seen": len(seen_papers),
+            "all_papers_seen": list(seen_papers),  # Include all corpus IDs seen across all turns
             "total_input_tokens": total_input_tokens,
-            "total_output_tokens": total_output_tokens
+            "total_output_tokens": total_output_tokens,
+            "total_tokens": total_input_tokens + total_output_tokens,
+            "model": self.model,
+            "max_turns": self.max_turns,
+            "turns_used": len(turns),
+            "system_prompt": self.system_prompt  # Include system prompt for reference
         }
 
 
@@ -550,7 +682,7 @@ def main():
     
     # Query parameters
     parser.add_argument('--query_file', type=str, required=True,
-                       help='Path to query file (JSONL format with "query" and "paperId" fields)')
+                       help='Path to query file (JSONL format with "query" and "paperId"/"corpusId" fields)')
     parser.add_argument('--output_file', type=str, required=True,
                        help='Path to output file (JSONL format)')
     
@@ -609,12 +741,13 @@ def main():
         all_results = []
         for i, query_data in enumerate(queries, 1):
             user_query = query_data.get('query', '')
-            expected_paper_id = query_data.get('paperId', '')
+            # Support corpus_id (with underscore) as primary, fallback to other formats for compatibility
+            expected_corpus_id = query_data.get('corpus_id', query_data.get('corpusId', query_data.get('corpusid', query_data.get('paperId', ''))))
             
             if args.verbose:
                 print(f"\n\n{'#'*60}")
                 print(f"Query {i}/{len(queries)}: {user_query}")
-                print(f"Expected: {expected_paper_id}")
+                print(f"Expected: {expected_corpus_id}")
                 print(f"{'#'*60}")
             else:
                 print(f"Processing query {i}/{len(queries)}...", end='\r')
@@ -623,17 +756,23 @@ def main():
             result = agent.retrieve(user_query, verbose=args.verbose)
             
             # Add evaluation fields
-            result['expected'] = expected_paper_id
+            result['expected'] = expected_corpus_id
             
-            # Remove internal fields for output
+            # Include all detailed information in output
             output_result = {
                 'query': result['query'],
                 'expected': result['expected'],
                 'retrieved': result['retrieved'],
                 'turns': result['turns'],
                 'total_papers_seen': result['total_papers_seen'],
+                'all_papers_seen': result.get('all_papers_seen', []),
                 'total_input_tokens': result['total_input_tokens'],
-                'total_output_tokens': result['total_output_tokens']
+                'total_output_tokens': result['total_output_tokens'],
+                'total_tokens': result.get('total_tokens', result['total_input_tokens'] + result['total_output_tokens']),
+                'model': result.get('model', args.model),
+                'max_turns': result.get('max_turns', args.max_turns),
+                'turns_used': result.get('turns_used', len(result['turns'])),
+                'system_prompt': result.get('system_prompt', '')  # Include system prompt
             }
             
             all_results.append(output_result)

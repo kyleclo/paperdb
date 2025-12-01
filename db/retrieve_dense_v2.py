@@ -44,12 +44,12 @@ def main():
         retrieved_data = retriever.retrieve(query, k=args.k)
         
         # Build result entry
-        # Support both v1 (camelCase) and v2 (lowercase) formats
-        expected_paper_id = query_data.get("paperId", query_data.get("corpusId", query_data.get("corpusid", "")))
+        # Support corpus_id (with underscore) as primary, fallback to other formats for compatibility
+        expected_corpus_id = query_data.get("corpus_id", query_data.get("corpusId", query_data.get("corpusid", query_data.get("paperId", ""))))
         result = {
             "query": query,
-            "expected": expected_paper_id,
-            "retrieved": retrieved_data["paper_ids"],  # Deduplicated paper IDs for scoring
+            "expected": expected_corpus_id,
+            "retrieved": retrieved_data["corpus_ids"],  # Deduplicated corpus IDs for scoring
             "units": {
                 k: v for k, v in 
                 zip(retrieved_data["unit_ids"], retrieved_data["unit_texts"])

@@ -3,10 +3,11 @@ import argparse
 import pickle
 from pathlib import Path
 import numpy as np
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer
 import torch
 from tqdm import tqdm
 import faiss
+from vllm import LLM
 
 
 def load_papers(paper_file):
@@ -21,43 +22,66 @@ def load_papers(paper_file):
     return papers
 
 
-def extract_retrieval_units(papers, retrieval_units):
+def chunk_text_by_tokens(text, tokenizer, max_tokens=512):
+    """Split text into chunks of at most max_tokens tokens."""
+    if not text:
+        return []
+    
+    # Tokenize the entire text
+    tokens = tokenizer.encode(text, add_special_tokens=False)
+    
+    if len(tokens) <= max_tokens:
+        return [text]
+    
+    chunks = []
+    # Split into chunks of max_tokens
+    for i in range(0, len(tokens), max_tokens):
+        chunk_tokens = tokens[i:i + max_tokens]
+        # Decode back to text
+        chunk_text = tokenizer.decode(chunk_tokens, skip_special_tokens=True)
+        chunks.append(chunk_text)
+    
+    return chunks
+
+
+def extract_retrieval_units(papers, retrieval_units, tokenizer=None):
     """Extract retrieval units from papers."""
     units = []
     
     for paper in tqdm(papers, desc="Extracting retrieval units"):
         # Support both v1 (camelCase) and v2 (lowercase) formats
-        paper_id = paper.get('paperId', paper.get('corpusId', paper.get('corpusid', '')))
+        corpus_id = paper.get('paperId', paper.get('corpusId', paper.get('corpusid', '')))
         
-        # Paragraphs
-        if 'paragraphs' in retrieval_units and 'paragraphs' in paper:
-            for para_idx, paragraph in enumerate(paper['paragraphs']):
-                text = paragraph.get('text', '')
-                if text:
-                    unit_id = f"{paper_id}_para_{para_idx}"
-                    metadata = {
-                        'unit_type': 'paragraph',
-                        'section_title': paragraph.get('sectionTitle', ''),
-                        'paragraph_title': paragraph.get('title', ''),
-                        'paragraph_id': paragraph.get('paragraphId', '')
-                    }
-                    units.append((unit_id, paper_id, text, metadata))
+        # Fulltext body chunks (replaces paragraphs)
+        if 'fulltext' in retrieval_units or 'paragraphs' in retrieval_units:
+            fulltext_body = paper.get('fulltext_body')
+            if fulltext_body and tokenizer is not None:
+                # Chunk the fulltext_body into 512-token chunks
+                chunks = chunk_text_by_tokens(fulltext_body, tokenizer, max_tokens=512)
+                for chunk_idx, chunk_text in enumerate(chunks):
+                    if chunk_text.strip():
+                        unit_id = f"{corpus_id}_fulltext_{chunk_idx}"
+                        metadata = {
+                            'unit_type': 'fulltext',
+                            'chunk_index': chunk_idx
+                        }
+                        units.append((unit_id, corpus_id, chunk_text, metadata))
         
         # Abstract
         if 'abstracts' in retrieval_units and 'abstract' in paper:
-            abstract = paper.get('abstract', '')
-            if abstract:
-                unit_id = f"{paper_id}_abstract"
+            abstract = paper.get('abstract')
+            if abstract:  # Handle None and empty string
+                unit_id = f"{corpus_id}_abstract"
                 metadata = {'unit_type': 'abstract'}
-                units.append((unit_id, paper_id, abstract, metadata))
+                units.append((unit_id, corpus_id, abstract, metadata))
         
         # Title
         if 'title' in retrieval_units and 'title' in paper:
             title = paper.get('title', '')
             if title:
-                unit_id = f"{paper_id}_title"
+                unit_id = f"{corpus_id}_title"
                 metadata = {'unit_type': 'title'}
-                units.append((unit_id, paper_id, title, metadata))
+                units.append((unit_id, corpus_id, title, metadata))
         
         # Metadata
         if 'metadata' in retrieval_units:
@@ -69,17 +93,34 @@ def extract_retrieval_units(papers, retrieval_units):
                 parts.append(f"Venue: {paper['venue']}")
             if 'year' in paper and paper['year']:
                 parts.append(f"Year: {paper['year']}")
-            # Support both v1 (camelCase) and v2 (lowercase) formats
-            fields_of_study = paper.get('fieldsOfStudy', paper.get('fieldsofstudy', []))
-            if fields_of_study:
-                parts.append(f"Fields: {', '.join(fields_of_study)}")
+            
+            # Handle s2fieldsofstudy (list of dicts with 'category' key)
+            s2fields = paper.get('s2fieldsofstudy', [])
+            if s2fields:
+                # Extract categories from dicts
+                categories = [f.get('category', '') for f in s2fields if isinstance(f, dict) and f.get('category')]
+                if categories:
+                    parts.append(f"Fields: {', '.join(categories)}")
+            
+            # Fallback to old format if s2fieldsofstudy not available
+            if not s2fields:
+                fields_of_study = paper.get('fieldsOfStudy', paper.get('fieldsofstudy', []))
+                if fields_of_study:
+                    # Handle both list of strings and list of dicts
+                    if fields_of_study and isinstance(fields_of_study[0], str):
+                        parts.append(f"Fields: {', '.join(fields_of_study)}")
+                    elif fields_of_study:
+                        categories = [f.get('category', '') for f in fields_of_study if isinstance(f, dict) and f.get('category')]
+                        if categories:
+                            parts.append(f"Fields: {', '.join(categories)}")
+            
             publication_types = paper.get('publicationTypes', paper.get('publicationtypes', []))
             if publication_types:
                 parts.append(f"Publication Types: {', '.join(publication_types)}")
             
             metadata_text = ' | '.join(parts)
             if metadata_text:
-                unit_id = f"{paper_id}_metadata"
+                unit_id = f"{corpus_id}_metadata"
                 # Support both citationCount (v1) and citationcount (v2)
                 citation_count = paper.get('citationCount', paper.get('citationcount', 0))
                 metadata = {
@@ -88,76 +129,60 @@ def extract_retrieval_units(papers, retrieval_units):
                     'venue': paper.get('venue'),
                     'citation_count': citation_count
                 }
-                units.append((unit_id, paper_id, metadata_text, metadata))
+                units.append((unit_id, corpus_id, metadata_text, metadata))
     
     print(f"Extracted {len(units)} retrieval units")
     return units
 
 
-def last_token_pool(last_hidden_states, attention_mask):
-    """Pool embeddings using last token (following official Qwen3-Embedding example)."""
-    left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
-    if left_padding:
-        return last_hidden_states[:, -1]
-    else:
-        sequence_lengths = attention_mask.sum(dim=1) - 1
-        batch_size = last_hidden_states.shape[0]
-        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
-
-
-def compute_embeddings(texts, tokenizer, model, device, batch_size=32):
-    """Compute embeddings for texts using last token pooling."""
+def compute_embeddings(texts, model, batch_size=32):
+    """Compute embeddings for texts using vllm."""
     all_embeddings = []
     
-    with torch.no_grad():
-        for i in tqdm(range(0, len(texts), batch_size), desc="Computing embeddings"):
-            batch_texts = texts[i:i + batch_size]
-            
-            inputs = tokenizer(batch_texts, padding=True, truncation=True, 
-                             max_length=8192, return_tensors="pt")
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            outputs = model(**inputs)
-            
-            # Last token pooling (official method)
-            embeddings = last_token_pool(outputs.last_hidden_state, inputs['attention_mask'])
-            
-            # Normalize
-            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-            
-            all_embeddings.append(embeddings.cpu().numpy())
+    # Process in batches to avoid memory issues
+    for i in tqdm(range(0, len(texts), batch_size), desc="Computing embeddings"):
+        batch_texts = texts[i:i + batch_size]
+        
+        # vllm handles embedding computation internally
+        outputs = model.embed(batch_texts)
+        
+        # Extract embeddings from outputs
+        batch_embeddings = torch.tensor([o.outputs.embedding for o in outputs])
+        
+        # vllm embeddings are already normalized, but ensure numpy format
+        all_embeddings.append(batch_embeddings.cpu().numpy())
     
     return np.vstack(all_embeddings)
 
 
 def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-Embedding-0.6B', batch_size=32):
     """Build retrieval index."""
-    # Load model
-    print(f"Loading model: {model_name}")
+    # Load tokenizer for text chunking (still needed for fulltext chunking)
+    print(f"Loading tokenizer for text chunking: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
-    model = AutoModel.from_pretrained(model_name)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
-    print(f"Model loaded on device: {device}")
+    
+    # Load vllm model for embeddings
+    print(f"Loading vllm model: {model_name}")
+    model = LLM(model=model_name, task="embed")
+    print(f"Model loaded")
     
     # Load papers
     papers = load_papers(paper_file)
     
-    # Extract units
-    units = extract_retrieval_units(papers, retrieval_units)
+    # Extract units (pass tokenizer for fulltext chunking)
+    units = extract_retrieval_units(papers, retrieval_units, tokenizer=tokenizer)
     if not units:
         print("Warning: No retrieval units extracted!")
         return
     
     unit_ids = [u[0] for u in units]
-    paper_ids = [u[1] for u in units]
+    corpus_ids = [u[1] for u in units]
     texts = [u[2] for u in units]
     metadatas = [u[3] for u in units]
     
     # Compute embeddings
     print(f"Computing embeddings for {len(texts)} texts...")
-    embeddings = compute_embeddings(texts, tokenizer, model, device, batch_size)
+    embeddings = compute_embeddings(texts, model, batch_size)
     print(f"Embeddings shape: {embeddings.shape}")
     
     # Build FAISS index
@@ -172,14 +197,23 @@ def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-
     paper_objs = {}
     for paper in papers:
         # Support both v1 (camelCase) and v2 (lowercase) formats
-        paper_id = paper.get('paperId', paper.get('corpusId', paper.get('corpusid', '')))
+        corpus_id = paper.get('paperId', paper.get('corpusId', paper.get('corpusid', '')))
         # Support both citationCount (v1) and citationcount (v2)
         citation_count = paper.get('citationCount', paper.get('citationcount', 0))
-        # Support both fieldsOfStudy (v1) and fieldsofstudy (v2)
-        fields_of_study = paper.get('fieldsOfStudy', paper.get('fieldsofstudy', []))
+        # Handle s2fieldsofstudy (list of dicts with 'category' key)
+        s2fields = paper.get('s2fieldsofstudy', [])
+        if s2fields:
+            # Extract categories from dicts
+            fields_of_study = [f.get('category', '') for f in s2fields if isinstance(f, dict) and f.get('category')]
+        else:
+            # Fallback to old format
+            fields_of_study = paper.get('fieldsOfStudy', paper.get('fieldsofstudy', []))
+            # If it's a list of dicts, extract categories
+            if fields_of_study and isinstance(fields_of_study[0], dict):
+                fields_of_study = [f.get('category', '') for f in fields_of_study if isinstance(f, dict) and f.get('category')]
         
-        paper_objs[paper_id] = {
-            'paper_id': paper_id,
+        paper_objs[corpus_id] = {
+            'corpus_id': corpus_id,
             'title': paper.get('title', ''),
             'abstract': paper.get('abstract', ''),
             'authors': paper.get('authors', []),
@@ -191,9 +225,9 @@ def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-
         }
     
     # Map unit_ids to retrieval units
-    for unit_id, paper_id, text, metadata in units:
-        if paper_id in paper_objs:
-            paper_objs[paper_id]['unit_ids_to_retrieval_units'][unit_id] = {
+    for unit_id, corpus_id, text, metadata in units:
+        if corpus_id in paper_objs:
+            paper_objs[corpus_id]['unit_ids_to_retrieval_units'][unit_id] = {
                 'text': text,
                 'metadata': metadata
             }
@@ -263,8 +297,8 @@ def main():
     parser = argparse.ArgumentParser(description="Build retrieval index for papers")
     parser.add_argument('--paper_file', type=str, required=True, help='Path to JSONL file')
     parser.add_argument('--retrieval_units', type=str, nargs='+', required=True,
-                       choices=['paragraphs', 'abstracts', 'title', 'metadata'],
-                       help='Unit types to index')
+                       choices=['fulltext', 'paragraphs', 'abstracts', 'title', 'metadata'],
+                       help='Unit types to index (fulltext replaces paragraphs for new format)')
     parser.add_argument('--output_dir', type=str, required=True, help='Output directory')
     parser.add_argument('--model_name', type=str, default='Qwen/Qwen3-Embedding-0.6B',
                        help='Embedding model name')

@@ -27,7 +27,7 @@ class DenseRetriever:
         self.faiss_index = None
         self.unit_ids = None
         self.paper_objs = None
-        self.unit_id_to_paper_id = {}
+        self.unit_id_to_corpus_id = {}
         
         if index_dir is None:
             # Default to the index-all-units directory
@@ -65,11 +65,11 @@ class DenseRetriever:
             self.paper_objs = pickle.load(f)
         print(f"Loaded {len(self.paper_objs)} paper objects")
         
-        # Build unit_id to paper_id mapping
+        # Build unit_id to corpus_id mapping
         for paper_obj in self.paper_objs:
-            paper_id = paper_obj["paper_id"]
+            corpus_id = paper_obj.get("corpus_id", paper_obj.get("paper_id"))  # Support both formats for backward compatibility
             for unit_id in paper_obj["unit_ids_to_retrieval_units"].keys():
-                self.unit_id_to_paper_id[unit_id] = paper_id
+                self.unit_id_to_corpus_id[unit_id] = corpus_id
         
         # Load embedding model
         print(f"Loading embedding model: {self.model_name}")
@@ -98,13 +98,14 @@ class DenseRetriever:
 
     def get_unit_text(self, unit_id: str) -> str:
         """Get the text content for a given unit_id."""
-        paper_id = self.unit_id_to_paper_id.get(unit_id)
-        if not paper_id:
+        corpus_id = self.unit_id_to_corpus_id.get(unit_id)
+        if not corpus_id:
             return ""
         
         # Find the paper object
         for paper_obj in self.paper_objs:
-            if paper_obj["paper_id"] == paper_id:
+            paper_corpus_id = paper_obj.get("corpus_id", paper_obj.get("paper_id"))  # Support both formats
+            if paper_corpus_id == corpus_id:
                 retrieval_unit = paper_obj["unit_ids_to_retrieval_units"].get(unit_id)
                 if retrieval_unit:
                     return retrieval_unit.get("text", "")
@@ -117,7 +118,7 @@ class DenseRetriever:
         Returns:
             dict with keys:
                 - 'unit_ids': list of unit IDs
-                - 'paper_ids': list of deduplicated paper IDs (in order of first occurrence)
+                - 'corpus_ids': list of deduplicated corpus IDs (in order of first occurrence)
                 - 'unit_texts': list of text content for each unit
         """
         # Encode query
@@ -133,17 +134,17 @@ class DenseRetriever:
         # Get unit texts
         retrieved_unit_texts = [self.get_unit_text(unit_id) for unit_id in retrieved_unit_ids]
         
-        # Get paper IDs and deduplicate while preserving order
-        retrieved_paper_ids = []
-        seen_paper_ids = set()
+        # Get corpus IDs and deduplicate while preserving order
+        retrieved_corpus_ids = []
+        seen_corpus_ids = set()
         for unit_id in retrieved_unit_ids:
-            paper_id = self.unit_id_to_paper_id.get(unit_id)
-            if paper_id and paper_id not in seen_paper_ids:
-                retrieved_paper_ids.append(paper_id)
-                seen_paper_ids.add(paper_id)
+            corpus_id = self.unit_id_to_corpus_id.get(unit_id)
+            if corpus_id and corpus_id not in seen_corpus_ids:
+                retrieved_corpus_ids.append(corpus_id)
+                seen_corpus_ids.add(corpus_id)
         
         return {
             'unit_ids': retrieved_unit_ids,
-            'paper_ids': retrieved_paper_ids,
+            'corpus_ids': retrieved_corpus_ids,
             'unit_texts': retrieved_unit_texts
         }

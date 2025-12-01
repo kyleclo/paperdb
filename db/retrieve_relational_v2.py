@@ -348,7 +348,7 @@ def main():
                     'output_tokens': 0,
                     'corpus_ids': [],
                     'count': 0,
-                    'expected': query_data.get('corpusId', query_data.get('paperId', '')),
+                    'expected': query_data.get('corpus_id', query_data.get('corpusId', query_data.get('corpusid', query_data.get('paperId', '')))),
                     'retrieved': []
                 }
                 all_results.append(result)
@@ -378,7 +378,7 @@ def main():
             result = execute_query_with_sql(conn, query_data.get('query', ''), llm_result)
 
             # Add evaluation fields
-            result['expected'] = query_data.get('corpusId', query_data.get('paperId', ''))
+            result['expected'] = query_data.get('corpus_id', query_data.get('corpusId', query_data.get('corpusid', query_data.get('paperId', ''))))
             result['retrieved'] = result['corpus_ids']
 
             all_results.append(result)

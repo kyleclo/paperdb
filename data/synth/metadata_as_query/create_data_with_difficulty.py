@@ -8,13 +8,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils import clean_query, textual_overlap
 
 
-def create_synthetic_query(paper, venue_mappings=None, title_dropout=0.0, metadata_dropout=0.0):
+def create_synthetic_query(paper, venue_mappings=None, author_affiliation_map=None, title_dropout=0.0, metadata_dropout=0.0):
     """
     Create a synthetic query by randomly shuffling paper metadata fields.
 
     Args:
         paper: Dictionary containing paper metadata
-        venue_mappings: Optional dict mapping venue names to alternative names
+        venue_mappings: Optional dict mapping venue names to canonical names
+        author_affiliation_map: Optional dict mapping author IDs to affiliation data
         title_dropout: Probability of dropping each word from the title (0.0-1.0)
                       Higher values = more words dropped = harder queries
         metadata_dropout: Probability of dropping entire metadata fields (0.0-1.0)
@@ -43,21 +44,28 @@ def create_synthetic_query(paper, venue_mappings=None, title_dropout=0.0, metada
     if paper.get('year') and random.random() > metadata_dropout:
         fields.append(str(paper['year']))
 
-    # Venue - with optional field dropout and alternative names
+    # Venue - with optional field dropout and canonical name mapping
     if paper.get('venue') and random.random() > metadata_dropout:
         venue = paper['venue']
         if venue_mappings and venue in venue_mappings:
-            # Only use the short alternatives, not the full original name
-            venue = random.choice(venue_mappings[venue])
+            # Map to canonical venue name (e.g., "NAACL 2016" → "NAACL", "BioNLP@ACL" → "ACL")
+            venue = venue_mappings[venue]
         fields.append(venue)
-
-    # Field of study - with optional field dropout
-    if paper.get('fieldsOfStudy') and len(paper['fieldsOfStudy']) > 0 and random.random() > metadata_dropout:
-        fields.append(paper['fieldsOfStudy'][0])
 
     # First author name - with optional field dropout
     if paper.get('authors') and len(paper['authors']) > 0 and random.random() > metadata_dropout:
         fields.append(paper['authors'][0]['name'])
+
+    # First author affiliation - with optional field dropout
+    if author_affiliation_map and paper.get('authors') and len(paper['authors']) > 0 and random.random() > metadata_dropout:
+        author_id = paper['authors'][0].get('authorId')
+        if author_id and author_id in author_affiliation_map:
+            affil_data = author_affiliation_map[author_id]
+            if affil_data.get('affiliations') and len(affil_data['affiliations']) > 0:
+                # Use first affiliation's display name
+                affil_name = affil_data['affiliations'][0].get('display_name')
+                if affil_name:
+                    fields.append(affil_name)
 
     # Clean each field individually
     cleaned_fields = [clean_query(field) for field in fields]
@@ -69,7 +77,7 @@ def create_synthetic_query(paper, venue_mappings=None, title_dropout=0.0, metada
     return ', '.join(cleaned_fields)
 
 
-def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, metadata_dropout=0.0, seed=42):
+def create_dataset(input_path, output_path, venues_path, author_affiliation_path, title_dropout=0.0, metadata_dropout=0.0, seed=42):
     """
     Create a synthetic query dataset with specified difficulty level.
 
@@ -77,6 +85,7 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
         input_path: Path to input papers file
         output_path: Path to output JSONL file
         venues_path: Path to venue mappings JSON
+        author_affiliation_path: Path to author affiliation map JSON
         title_dropout: Probability of dropping title words (higher = harder)
         metadata_dropout: Probability of dropping metadata fields (year, venue, etc.)
         seed: Random seed for reproducibility
@@ -87,6 +96,7 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
     input_path = Path(input_path)
     output_path = Path(output_path)
     venues_path = Path(venues_path)
+    author_affiliation_path = Path(author_affiliation_path)
 
     print(f"Reading from: {input_path}")
     print(f"Writing to: {output_path}")
@@ -100,7 +110,16 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
             venue_mappings = json.load(f)
         print(f"Loaded {len(venue_mappings)} venue mappings")
     else:
-        print("Warning: venues.json not found, using original venue names")
+        print("Warning: venue_to_id.json not found, using original venue names")
+
+    # Load author affiliation map
+    author_affiliation_map = {}
+    if author_affiliation_path.exists():
+        with open(author_affiliation_path, 'r') as f:
+            author_affiliation_map = json.load(f)
+        print(f"Loaded {len(author_affiliation_map)} author affiliations")
+    else:
+        print("Warning: author_affiliation_map.json not found, skipping affiliation data")
 
     # Process papers
     papers_processed = 0
@@ -111,7 +130,7 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
             paper = json.loads(line)
 
             # Create synthetic query (already cleaned within the function)
-            query = create_synthetic_query(paper, venue_mappings, title_dropout, metadata_dropout)
+            query = create_synthetic_query(paper, venue_mappings, author_affiliation_map, title_dropout, metadata_dropout)
 
             # Calculate overlap with title for statistics
             if paper.get('title'):
@@ -121,7 +140,7 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
             # Create output record with required schema
             output_record = {
                 'query': query,
-                'paperId': paper['paperId'],
+                'corpus_id': paper['corpusid'],
                 'relevance': 1
             }
 
@@ -133,7 +152,7 @@ def create_dataset(input_path, output_path, venues_path, title_dropout=0.0, meta
             # Print first few examples
             if papers_processed <= 3:
                 print(f"\nPaper {papers_processed}:")
-                print(f"  paperId: {paper['paperId']}")
+                print(f"  corpus_id: {paper['corpusid']}")
                 print(f"  Title: {paper.get('title', 'N/A')[:60]}...")
                 print(f"  Query: {query[:100]}...")
                 if overlap_stats:
@@ -171,93 +190,36 @@ def calculate_overlap_score(query, title):
 
 
 def main():
-    # Paths
-    input_path = Path(__file__).parent.parent.parent / 'raw' / 'papers_100.jsonl'
-    output_dir = Path(__file__).parent
-    venues_path = Path(__file__).parent.parent.parent / 'raw' / 'venues.json'
+    # Paths (relative to script location, not CWD)
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent.parent.parent  # data/synth/metadata_as_query -> data/synth -> data -> project_root
+    input_path = project_root / 'raw' / 'dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged-100.jsonl'
+    output_dir = script_dir
+    venues_path = project_root / 'raw' / 'venue_to_id.json'
+    author_affiliation_path = project_root / 'raw' / 'author_affiliation_map.json'
 
-    # Create easy version (low dropout = high overlap with title, all metadata)
-    title_dropout_easy = 0.0
-    metadata_dropout_easy = 0.0
-    print("=" * 70)
-    print(f"CREATING DATASET (td={title_dropout_easy}, md={metadata_dropout_easy})")
-    print("=" * 70)
-    create_dataset(
-        input_path=input_path,
-        output_path=output_dir / f'train_td{title_dropout_easy}_md{metadata_dropout_easy}.jsonl',
-        venues_path=venues_path,
-        title_dropout=title_dropout_easy,
-        metadata_dropout=metadata_dropout_easy,
-        seed=42
-    )
+    # Sweep over dropout values
+    dropout_values = [0.0, 0.2, 0.4, 0.6, 0.8]
 
-    print("\n\n")
+    total_combinations = len(dropout_values) * len(dropout_values)
+    current = 0
 
-    # Create hard version (high dropout = low overlap with title, missing metadata)
-    title_dropout_hard = 0.7
-    metadata_dropout_hard = 0.3
-    print("=" * 70)
-    print(f"CREATING DATASET (td={title_dropout_hard}, md={metadata_dropout_hard})")
-    print("=" * 70)
-    create_dataset(
-        input_path=input_path,
-        output_path=output_dir / f'train_td{title_dropout_hard}_md{metadata_dropout_hard}.jsonl',
-        venues_path=venues_path,
-        title_dropout=title_dropout_hard,
-        metadata_dropout=metadata_dropout_hard,
-        seed=42
-    )
-
-    print("\n\n")
-
-    # Create medium version (moderate title dropout, moderate metadata dropout)
-    title_dropout_medium = 0.4
-    metadata_dropout_medium = 0.3
-    print("=" * 70)
-    print(f"CREATING DATASET (td={title_dropout_medium}, md={metadata_dropout_medium})")
-    print("=" * 70)
-    create_dataset(
-        input_path=input_path,
-        output_path=output_dir / f'train_td{title_dropout_medium}_md{metadata_dropout_medium}.jsonl',
-        venues_path=venues_path,
-        title_dropout=title_dropout_medium,
-        metadata_dropout=metadata_dropout_medium,
-        seed=42
-    )
-
-    print("\n\n")
-
-    # Create hardest version (moderate title dropout, high metadata dropout)
-    title_dropout_hardest = 0.4
-    metadata_dropout_hardest = 0.7
-    print("=" * 70)
-    print(f"CREATING DATASET (td={title_dropout_hardest}, md={metadata_dropout_hardest})")
-    print("=" * 70)
-    create_dataset(
-        input_path=input_path,
-        output_path=output_dir / f'train_td{title_dropout_hardest}_md{metadata_dropout_hardest}.jsonl',
-        venues_path=venues_path,
-        title_dropout=title_dropout_hardest,
-        metadata_dropout=metadata_dropout_hardest,
-        seed=42
-    )
-
-    print("\n\n")
-
-    # Create extreme version (high title dropout, high metadata dropout)
-    title_dropout_extreme = 0.7
-    metadata_dropout_extreme = 0.7
-    print("=" * 70)
-    print(f"CREATING DATASET (td={title_dropout_extreme}, md={metadata_dropout_extreme})")
-    print("=" * 70)
-    create_dataset(
-        input_path=input_path,
-        output_path=output_dir / f'train_td{title_dropout_extreme}_md{metadata_dropout_extreme}.jsonl',
-        venues_path=venues_path,
-        title_dropout=title_dropout_extreme,
-        metadata_dropout=metadata_dropout_extreme,
-        seed=42
-    )
+    for td in dropout_values:
+        for md in dropout_values:
+            current += 1
+            print("=" * 70)
+            print(f"CREATING DATASET {current}/{total_combinations} (td={td}, md={md})")
+            print("=" * 70)
+            create_dataset(
+                input_path=input_path,
+                output_path=output_dir / f'train_td{td}_md{md}.jsonl',
+                venues_path=venues_path,
+                author_affiliation_path=author_affiliation_path,
+                title_dropout=td,
+                metadata_dropout=md,
+                seed=42
+            )
+            print("\n")
 
 
 if __name__ == '__main__':

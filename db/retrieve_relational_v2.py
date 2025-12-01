@@ -195,9 +195,29 @@ def execute_sql_query(conn, sql_query: str) -> List[Dict[str, Any]]:
 
     except Exception as e:
         # Rollback on error so subsequent queries can execute
-        conn.rollback()
+        # Only rollback if connection is still open
+        try:
+            conn.rollback()
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            # Connection is closed, skip rollback
+            pass
         print(f"Error executing SQL query: {e}")
         return None
+
+
+def check_and_reconnect(conn, db_name: str, db_user: str, db_password: str,
+                       db_host: str = 'localhost', db_port: int = 5432):
+    """Check if connection is closed and reconnect if needed."""
+    try:
+        # Try to check connection status
+        if conn.closed:
+            print("Connection closed, attempting to reconnect...")
+            return connect_db(db_name, db_user, db_password, db_host, db_port)
+    except (psycopg2.InterfaceError, AttributeError):
+        # Connection is closed or status check failed, reconnect
+        print("Connection lost, attempting to reconnect...")
+        return connect_db(db_name, db_user, db_password, db_host, db_port)
+    return conn
 
 
 def execute_query_with_sql(conn, user_query: str, llm_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -336,6 +356,23 @@ def main():
 
             # Process API response
             llm_result = process_api_response(api_response, log_first=(i == 0))
+
+            # Check and reconnect if connection is lost
+            conn = check_and_reconnect(conn, args.db_name, args.db_user, args.db_password,
+                                     args.db_host, args.db_port)
+            if not conn:
+                result = {
+                    'query': query_data.get('query', ''),
+                    'sql': llm_result.get('sql'),
+                    **{k: v for k, v in llm_result.items() if k not in ['sql']},
+                    'error': 'Database connection lost and reconnection failed',
+                    'corpus_ids': [],
+                    'count': 0,
+                    'expected': query_data.get('corpusId', query_data.get('paperId', '')),
+                    'retrieved': []
+                }
+                all_results.append(result)
+                continue
 
             # Execute SQL query
             result = execute_query_with_sql(conn, query_data.get('query', ''), llm_result)

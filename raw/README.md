@@ -19,6 +19,7 @@ Recent open access NLP/ML/AI papers from DBLP, enriched with full text from Vesp
 **File**: `author_affiliation_map.json` (4.4 MB)
 
 - **Total authors**: 13,830
+- **Unique affiliations**: 1,792 institutions/organizations
 - **Coverage**: 35.9% of papers have affiliation data
 - **Source**: OpenAlex API
 
@@ -64,6 +65,7 @@ Converted HuggingFace dataset format to flat JSONLines for easier processing.
 - **Batch mode**: 50 papers per request
 - **Success rate**: 35.9% of papers found in OpenAlex
 - **Authors mapped**: 13,830 unique authors
+- **Unique affiliations**: 1,792 institutions/organizations
 - **Time**: ~5 minutes (batch queries)
 
 ### Step 5: Build Venue Mapping

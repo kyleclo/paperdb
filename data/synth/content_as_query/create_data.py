@@ -76,10 +76,16 @@ def extract_keyphrases_claude(paper, client, style='keywords', max_items=5):
         )
         response_text = message.content[0].text.strip()
         items = [item.strip() for item in response_text.split(separator)]
-        return items[:max_items]
+
+        # Return items and token usage
+        token_usage = {
+            'input_tokens': message.usage.input_tokens,
+            'output_tokens': message.usage.output_tokens
+        }
+        return items[:max_items], token_usage
     except Exception as e:
         print(f"  ⚠ Claude error: {e}")
-        return fallback_keyphrases(paper)
+        return fallback_keyphrases(paper), {'input_tokens': 0, 'output_tokens': 0}
 
 
 def extract_keyphrases_gpt(paper, client, style='keywords', max_items=5):
@@ -103,10 +109,16 @@ def extract_keyphrases_gpt(paper, client, style='keywords', max_items=5):
         )
         response_text = response.choices[0].message.content.strip()
         items = [item.strip() for item in response_text.split(separator)]
-        return items[:max_items]
+
+        # Return items and token usage
+        token_usage = {
+            'input_tokens': response.usage.prompt_tokens,
+            'output_tokens': response.usage.completion_tokens
+        }
+        return items[:max_items], token_usage
     except Exception as e:
         print(f"  ⚠ GPT error: {e}")
-        return fallback_keyphrases(paper)
+        return fallback_keyphrases(paper), {'input_tokens': 0, 'output_tokens': 0}
 
 
 def extract_keyphrases_gemini(paper, client, style='keywords', max_items=5):
@@ -124,33 +136,42 @@ def extract_keyphrases_gemini(paper, client, style='keywords', max_items=5):
         response = client.generate_content(prompt)
         response_text = response.text.strip()
         items = [item.strip() for item in response_text.split(separator)]
-        return items[:max_items]
+
+        # Return items and token usage
+        token_usage = {
+            'input_tokens': response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0,
+            'output_tokens': response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0
+        }
+        return items[:max_items], token_usage
     except Exception as e:
         print(f"  ⚠ Gemini error: {e}")
-        return fallback_keyphrases(paper)
+        return fallback_keyphrases(paper), {'input_tokens': 0, 'output_tokens': 0}
 
 
 def build_content(paper):
     """Build content string from paper for analysis."""
     content_parts = []
 
-    if paper.get('title'):
-        content_parts.append(f"Title: {paper['title']}")
+    # Use fulltext_title if available, otherwise fall back to title
+    title = paper.get('fulltext_title') or paper.get('title')
+    if title:
+        content_parts.append(f"Title: {title}")
 
-    if paper.get('abstract'):
-        content_parts.append(f"\nAbstract: {paper['abstract']}")
+    # Use fulltext_abstract if available, otherwise fall back to abstract
+    abstract = paper.get('fulltext_abstract') or paper.get('abstract')
+    if abstract:
+        content_parts.append(f"\nAbstract: {abstract}")
 
-    if paper.get('paragraphs'):
-        para_texts = []
-        for i, para in enumerate(paper['paragraphs'][:3]):  # First 3 paragraphs
-            if para.get('text'):
-                para_texts.append(para['text'])
-        if para_texts:
-            content_parts.append(f"\nContent: {' '.join(para_texts)}")
+    # Use fulltext_body for content (first 1500 chars to leave room for title/abstract)
+    if paper.get('fulltext_body'):
+        body = paper['fulltext_body']
+        # Take first 1500 chars of body
+        body_excerpt = body[:1500]
+        content_parts.append(f"\nContent: {body_excerpt}")
 
     content = ''.join(content_parts)
 
-    # Truncate if too long
+    # Truncate if too long (should be ~3000 total)
     if len(content) > 3000:
         content = content[:3000] + "..."
 
@@ -176,23 +197,23 @@ def create_content_query(paper, client, llm_type, style='keywords', num_items=No
         num_items: Number of items to use (None = random)
 
     Returns:
-        Query string
+        Tuple of (query string, token_usage dict)
     """
     # Determine number of items to extract
     max_items = 5 if style == 'keywords' else 3
 
     # Extract items based on LLM type
     if llm_type == 'claude':
-        items = extract_keyphrases_claude(paper, client, style, max_items)
+        items, token_usage = extract_keyphrases_claude(paper, client, style, max_items)
     elif llm_type == 'gpt':
-        items = extract_keyphrases_gpt(paper, client, style, max_items)
+        items, token_usage = extract_keyphrases_gpt(paper, client, style, max_items)
     elif llm_type == 'gemini':
-        items = extract_keyphrases_gemini(paper, client, style, max_items)
+        items, token_usage = extract_keyphrases_gemini(paper, client, style, max_items)
     else:
         raise ValueError(f"Unknown LLM type: {llm_type}")
 
     if not items:
-        return ""
+        return "", token_usage
 
     # Randomly select a subset
     if num_items is None:
@@ -209,7 +230,7 @@ def create_content_query(paper, client, llm_type, style='keywords', num_items=No
 
     # Shuffle and join with commas
     random.shuffle(cleaned_items)
-    return ', '.join(cleaned_items)
+    return ', '.join(cleaned_items), token_usage
 
 
 def create_dataset(input_path, output_path, llm_type='claude', style='keywords', seed=42):
@@ -223,6 +244,8 @@ def create_dataset(input_path, output_path, llm_type='claude', style='keywords',
         style: Extraction style ('keywords' or 'key_passages')
         seed: Random seed for reproducibility
     """
+    import time
+
     # Initialize appropriate client
     if llm_type == 'claude':
         from anthropic import Anthropic
@@ -263,52 +286,103 @@ def create_dataset(input_path, output_path, llm_type='claude', style='keywords',
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Create tokens file path
+    tokens_path = output_path.parent / f'{output_path.stem}_tokens.jsonl'
+
     print(f"Reading from: {input_path}")
     print(f"Writing to: {output_path}")
+    print(f"Tokens file: {tokens_path}")
     print(f"Using {model_name} for {style} extraction\n")
 
-    papers_processed = 0
+    # Count total papers first
+    total_papers = 0
+    with open(input_path, 'r') as f:
+        for _ in f:
+            total_papers += 1
 
-    with open(input_path, 'r') as infile, open(output_path, 'w') as outfile:
+    papers_processed = 0
+    total_input_tokens = 0
+    total_output_tokens = 0
+    start_time = time.time()
+
+    with open(input_path, 'r') as infile, \
+         open(output_path, 'w') as outfile, \
+         open(tokens_path, 'w') as tokens_file:
+
         for line in infile:
             paper = json.loads(line)
+            corpus_id = paper.get('corpusid') or paper.get('paperId')
 
             # Create query from content (already cleaned within the function)
-            query = create_content_query(paper, client, llm_type, style)
+            query, token_usage = create_content_query(paper, client, llm_type, style)
 
             if not query:
-                print(f"  ⚠ Skipping paper {paper.get('paperId')} - no query generated")
+                print(f"  ⚠ Skipping paper {corpus_id} - no query generated")
                 continue
 
             # Create output record
             output_record = {
                 'query': query,
-                'paperId': paper['paperId'],
+                'corpus_id': corpus_id,
                 'relevance': 1
             }
 
             # Write to output
             outfile.write(json.dumps(output_record) + '\n')
 
+            # Write token usage
+            token_record = {
+                'corpus_id': corpus_id,
+                'input_tokens': token_usage['input_tokens'],
+                'output_tokens': token_usage['output_tokens']
+            }
+            tokens_file.write(json.dumps(token_record) + '\n')
+
+            # Update totals
+            total_input_tokens += token_usage['input_tokens']
+            total_output_tokens += token_usage['output_tokens']
+
             papers_processed += 1
 
             # Print progress
-            if papers_processed <= 5 or papers_processed % 20 == 0:
-                print(f"Processed {papers_processed} papers")
+            elapsed = time.time() - start_time
+            papers_per_sec = papers_processed / elapsed if elapsed > 0 else 0
+            eta_seconds = (total_papers - papers_processed) / papers_per_sec if papers_per_sec > 0 else 0
+
+            if papers_processed <= 3 or papers_processed % 10 == 0 or papers_processed == total_papers:
+                progress_pct = (papers_processed / total_papers) * 100
+                print(f"[{papers_processed}/{total_papers}] {progress_pct:.1f}% | "
+                      f"ETA: {eta_seconds:.0f}s | "
+                      f"Tokens: {total_input_tokens} in, {total_output_tokens} out")
                 if papers_processed <= 3:
                     print(f"  Title: {paper.get('title', 'N/A')[:60]}...")
                     print(f"  Query: {query[:80]}...")
 
     print(f"\n✓ Processed {papers_processed} papers successfully!")
     print(f"✓ Output saved to: {output_path}")
+    print(f"✓ Tokens saved to: {tokens_path}")
+    print(f"✓ Total tokens: {total_input_tokens} input, {total_output_tokens} output")
 
 
 def main():
-    input_path = Path(__file__).parent.parent.parent / 'raw' / 'papers_100.jsonl'
-    output_dir = Path(__file__).parent
+    # Paths (relative to script location)
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent.parent.parent
+    input_path = project_root / 'raw' / 'dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged-100.jsonl'
+    output_dir = script_dir
 
     # Create datasets with both LLMs and both styles
-    for llm_type in ['claude', 'gpt']:
+    # Set to False to skip (e.g., if insufficient credits)
+    use_claude = False
+    use_gpt = True
+
+    llm_types = []
+    if use_claude:
+        llm_types.append('claude')
+    if use_gpt:
+        llm_types.append('gpt')
+
+    for llm_type in llm_types:
         for style in ['keywords', 'key_passages']:
             print("=" * 70)
             print(f"CREATING DATASET: {llm_type.upper()} + {style.upper()}")

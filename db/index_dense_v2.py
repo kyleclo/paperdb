@@ -155,7 +155,7 @@ def compute_embeddings(texts, model, batch_size=32):
     return np.vstack(all_embeddings)
 
 
-def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-Embedding-0.6B', batch_size=32):
+def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-Embedding-0.6B', batch_size=32, test_mode=False):
     """Build retrieval index."""
     # Load tokenizer for text chunking (still needed for fulltext chunking)
     print(f"Loading tokenizer for text chunking: {model_name}")
@@ -168,6 +168,12 @@ def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-
     
     # Load papers
     papers = load_papers(paper_file)
+    
+    # Limit to first 100 papers in test mode
+    if test_mode:
+        original_count = len(papers)
+        papers = papers[:100]
+        print(f"TEST MODE: Limited to first 100 papers (from {original_count} total)")
     
     # Extract units (pass tokenizer for fulltext chunking)
     units = extract_retrieval_units(papers, retrieval_units, tokenizer=tokenizer)
@@ -303,11 +309,13 @@ def main():
     parser.add_argument('--model_name', type=str, default='Qwen/Qwen3-Embedding-0.6B',
                        help='Embedding model name')
     parser.add_argument('--batch_size', type=int, default=1024, help='Batch size')
+    parser.add_argument('--test', action='store_true', 
+                       help='Test mode: only use the first 100 papers')
     
     args = parser.parse_args()
     
     build_index(args.paper_file, args.retrieval_units, args.output_dir, 
-                args.model_name, args.batch_size)
+                args.model_name, args.batch_size, test_mode=args.test)
 
 
 if __name__ == '__main__':

@@ -350,7 +350,8 @@ def main():
                     'corpus_ids': [],
                     'count': 0,
                     'expected': query_data.get('corpus_id', query_data.get('corpusId', query_data.get('corpusid', query_data.get('paperId', '')))),
-                    'retrieved': []
+                    'retrieved': [],
+                    'model': args.model
                 }
                 all_results.append(result)
                 continue
@@ -371,7 +372,8 @@ def main():
                     'corpus_ids': [],
                     'count': 0,
                     'expected': query_data.get('corpusId', query_data.get('paperId', '')),
-                    'retrieved': []
+                    'retrieved': [],
+                    'model': args.model
                 }
                 all_results.append(result)
                 continue
@@ -383,6 +385,7 @@ def main():
             result['expected'] = query_data.get('corpus_id', query_data.get('corpusId', query_data.get('corpusid', query_data.get('paperId', ''))))
             result['retrieved'] = result['corpus_ids']
             result['messages'] = messages
+            result['model'] = args.model
 
             all_results.append(result)
 

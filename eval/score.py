@@ -10,11 +10,19 @@ def load_jsonl(path: str) -> list[dict]:
             data.append(json.loads(line))
     return data
 
+def normalize_corpus_id(corpus_id_or_list: str | list[str]) -> list[str]:
+    # to str
+    if isinstance(corpus_id_or_list, list):
+        return [str(cid) for cid in corpus_id_or_list]
+    return str(corpus_id_or_list)
 
 def calculate_metrics(results: list[dict]) -> dict:
     total = len(results)
-    hits_at_1 = sum(1 for r in results if r["expected"] in r["retrieved"][:1])
-    hits_at_5 = sum(1 for r in results if r["expected"] in r["retrieved"][:5])
+    # print(f"Total queries: {total}")
+    # for i, r in enumerate(results):
+    #     print(f"Query {i+1}: {r['expected']} in {normalize_corpus_id(r['retrieved'])[:1]} | {r['expected'] in normalize_corpus_id(r['retrieved'])[:1]}")
+    hits_at_1 = sum(1 for r in results if normalize_corpus_id(r["expected"]) in normalize_corpus_id(r["retrieved"])[:1])
+    hits_at_5 = sum(1 for r in results if normalize_corpus_id(r["expected"]) in normalize_corpus_id(r["retrieved"])[:5])
 
     mrr = sum(
         1 / (r["retrieved"].index(r["expected"]) + 1)
@@ -35,6 +43,7 @@ def main():
     parser.add_argument("results_file", type=str, help="Path to the results JSONL file")
     parser.add_argument("metrics_file", type=str, help="Path to the output metrics JSON file")
     args = parser.parse_args()
+    print(f"Calculating metrics for {args.results_file} -> {args.metrics_file}")
 
     results = load_jsonl(args.results_file)
     metrics = calculate_metrics(results)

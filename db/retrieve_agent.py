@@ -92,7 +92,7 @@ def execute_sql_query(conn, sql_query: str) -> Optional[List[str]]:
     
     try:
         cursor.execute(sql_query)
-        rows = cursor.fetchall()
+        rows = cursor.fetchmany(10)
         
         # Try to find corpus_id column (v2 schema uses corpus_id as INTEGER primary key)
         column_names = [desc[0] for desc in cursor.description]
@@ -104,8 +104,7 @@ def execute_sql_query(conn, sql_query: str) -> Optional[List[str]]:
         # Convert to strings for compatibility with dense retriever output
         corpus_ids = [str(row[corpus_id_idx]) for row in rows if row[corpus_id_idx] is not None]
         
-        # Limit to 10 results
-        return corpus_ids[:10]
+        return corpus_ids
         
     except Exception as e:
         conn.rollback()
@@ -207,26 +206,24 @@ def get_agent_system_prompt(schema: str) -> str:
 {schema}
 
 **Your Task:**
-Given a user's search query, you should strategically use these tools to find the most relevant papers. You can:
+Given a user's search query, you should strategically use these tools to find the most relevant papers. You can iteratively call the tools to refine your search:
 - Query the relational database with SQL
 - Query the vector database with a text query
-- Call both tools multiple times to refine your search
-- Combine results from both tools
+
+**SQL Query Requirements (when using query_relational_db):**
+- Always select at least the corpus_id column
+- Order by relevance
+- Limit to 10 results maximum
 
 **Important Guidelines:**
-1. You can make multiple tool calls to explore different angles or refine your search
-2. After each tool call, you'll see the metadata (title, authors, abstract) of retrieved papers
-3. Use this information to decide if you need to search more or if you have enough results
-4. When you're confident you have found relevant papers, return your final list of paper IDs
-5. Return at most 10 paper IDs in your final answer, ordered by relevance
-6. Avoid returning duplicate papers - track what you've already seen
-7. Each retrieval method (SQL or vector search) should return at most 10 papers
-
-**Strategy Tips:**
-- For queries with specific attributes (author, venue, year, citation count), start with SQL
-- For conceptual/topical queries, start with vector search
-- If initial results are not satisfactory, try alternative queries or the other tool
-- Combine results from multiple searches for comprehensive coverage
+1. After each tool call, you'll see the metadata (title, authors, abstract) of retrieved papers
+2. Use the returned information to decide if you need to search more or if you have enough results
+3. When you're confident you have found relevant papers, return your final list of paper IDs with the return_papers tool call.
+4. Return at most 10 paper IDs in your final answer, ordered by relevance
+5. Avoid returning duplicate papers - track what you've already seen
+6. Each retrieval method (SQL or vector search) should return at most 10 papers
+7. If the latest tool results do not satisfy the user's request, do not call return_papers yet. Try a different tool or refine the query instead.
+8. You will be explicitly told how many tool calls remain. When you have no calls left, you must immediately call return_papers with your best available papers.
 """
 
 
@@ -368,6 +365,24 @@ class AgentRetriever:
                 print(f"\n{'='*60}")
                 print(f"Turn {turn_num}/{self.max_turns}")
                 print(f"{'='*60}")
+
+            remaining_calls = self.max_turns - turn_num + 1
+            if remaining_calls > 1:
+                budget_content = (
+                    f"Tool-call budget: You have {remaining_calls} tool call(s) remaining (including this turn). "
+                    "Keep searching until you are confident you have identified the user's exact paper."
+                )
+            else:
+                budget_content = (
+                    "Tool-call budget: You have 1 tool call remaining (including this turn). "
+                    "When you have no calls left you must call return_papers immediately."
+                )
+            
+            budget_message = {
+                "role": "user",
+                "content": budget_content
+            }
+            messages.append(budget_message)
             
             # Force termination at max_turns
             force_return = (turn_num == self.max_turns)
@@ -504,112 +519,131 @@ class AgentRetriever:
                     print(f"\n[Tool Call: {tool_name}]")
                     print(f"Arguments: {json.dumps(tool_args, indent=2)}")
                 
-                # Execute tool
-                if tool_name == "query_relational_db":
-                    sql_query = tool_args.get("sql_query", "")
-                    corpus_ids = execute_sql_query(self.conn, sql_query)
-                    
-                    # Get metadata for new papers only
-                    new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
-                    new_metadata = get_paper_metadata_from_index(self.dense_retriever, new_corpus_ids)
-                    
-                    # Update tracking
-                    seen_papers.update(new_corpus_ids)
-                    all_paper_metadata.extend(new_metadata)
-                    turn_new_papers.extend(new_metadata)
-                    
-                    tool_result = {
-                        "status": "success",
-                        "total_results": len(corpus_ids),
-                        "new_results": len(new_corpus_ids),
-                        "message": f"Found {len(corpus_ids)} papers ({len(new_corpus_ids)} new)",
-                        "corpus_ids": corpus_ids,  # Include all corpus IDs found
-                        "new_corpus_ids": new_corpus_ids,  # Include new corpus IDs
-                        "paper_metadata": new_metadata  # Include full metadata for new papers
-                    }
-                    
+                try:
+                    # Execute tool
+                    if tool_name == "query_relational_db":
+                        sql_query = tool_args.get("sql_query", "")
+                        corpus_ids = execute_sql_query(self.conn, sql_query) or []
+                        
+                        # Get metadata for new papers only
+                        new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
+                        new_metadata = get_paper_metadata_from_index(self.dense_retriever, new_corpus_ids)
+                        
+                        # Update tracking
+                        seen_papers.update(new_corpus_ids)
+                        all_paper_metadata.extend(new_metadata)
+                        turn_new_papers.extend(new_metadata)
+                        
+                        tool_result = {
+                            "status": "success",
+                            "total_results": len(corpus_ids),
+                            "new_results": len(new_corpus_ids),
+                            "message": f"Found {len(corpus_ids)} papers ({len(new_corpus_ids)} new)",
+                            "corpus_ids": corpus_ids,  # Include all corpus IDs found
+                            "new_corpus_ids": new_corpus_ids,  # Include new corpus IDs
+                            "paper_metadata": new_metadata  # Include full metadata for new papers
+                        }
+                        
+                        if verbose:
+                            print(f"Results: {len(corpus_ids)} papers ({len(new_corpus_ids)} new)")
+                        
+                        turn_results["tool_calls"].append({
+                            "tool": tool_name,
+                            "sql": sql_query,
+                            "arguments": tool_args,
+                            "result": tool_result
+                        })
+                        
+                        tool_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(tool_result)
+                        })
+                        
+                    elif tool_name == "query_vector_db":
+                        text_query = tool_args.get("text_query", "")
+                        k = tool_args.get("k", 10)
+                        k = min(k, 10)  # Cap at 10
+                        
+                        retrieved_data = self.dense_retriever.retrieve(text_query, k=k)
+                        corpus_ids = retrieved_data["corpus_ids"]
+                        # Limit to 10 results
+                        corpus_ids = corpus_ids[:10]
+                        
+                        # Get metadata for new papers only
+                        new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
+                        new_metadata = get_paper_metadata_from_index(self.dense_retriever, new_corpus_ids)
+                        
+                        # Update tracking
+                        seen_papers.update(new_corpus_ids)
+                        all_paper_metadata.extend(new_metadata)
+                        turn_new_papers.extend(new_metadata)
+                        
+                        tool_result = {
+                            "status": "success",
+                            "total_results": len(corpus_ids),
+                            "new_results": len(new_corpus_ids),
+                            "message": f"Found {len(corpus_ids)} papers ({len(new_corpus_ids)} new)",
+                            "corpus_ids": corpus_ids,  # Include all corpus IDs found
+                            "new_corpus_ids": new_corpus_ids,  # Include new corpus IDs
+                            "paper_metadata": new_metadata  # Include full metadata for new papers
+                        }
+                        
+                        if verbose:
+                            print(f"Results: {len(corpus_ids)} papers ({len(new_corpus_ids)} new)")
+                        
+                        turn_results["tool_calls"].append({
+                            "tool": tool_name,
+                            "text_query": text_query,
+                            "k": k,
+                            "arguments": tool_args,
+                            "result": tool_result
+                        })
+                        
+                        tool_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(tool_result)
+                        })
+                        
+                    elif tool_name == "return_papers":
+                        corpus_ids = tool_args.get("corpus_ids", tool_args.get("paper_ids", []))  # Support both for backward compatibility
+                        reasoning = tool_args.get("reasoning", "")
+                        
+                        # Validate and limit to 10 papers
+                        final_corpus_ids = corpus_ids[:10]
+                        
+                        if verbose:
+                            print(f"Returning {len(final_corpus_ids)} papers")
+                            if reasoning:
+                                print(f"Reasoning: {reasoning}")
+                        
+                        turn_results["tool_calls"].append({
+                            "tool": tool_name,
+                            "arguments": tool_args,
+                            "corpus_ids": final_corpus_ids,
+                            "reasoning": reasoning
+                        })
+                        
+                        # Don't add tool message for return_papers - we're done
+                except Exception as tool_error:
+                    error_message = f"Error executing {tool_name}: {tool_error}"
                     if verbose:
-                        print(f"Results: {len(corpus_ids)} papers ({len(new_corpus_ids)} new)")
-                    
+                        print(f"[Tool Error] {error_message}")
+                    tool_result = {
+                        "status": "error",
+                        "message": error_message
+                    }
                     turn_results["tool_calls"].append({
                         "tool": tool_name,
-                        "sql": sql_query,
                         "arguments": tool_args,
-                        "result": tool_result
+                        "error": error_message
                     })
-                    
                     tool_messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "content": json.dumps(tool_result)
                     })
-                    
-                elif tool_name == "query_vector_db":
-                    text_query = tool_args.get("text_query", "")
-                    k = tool_args.get("k", 10)
-                    k = min(k, 10)  # Cap at 10
-                    
-                    retrieved_data = self.dense_retriever.retrieve(text_query, k=k)
-                    corpus_ids = retrieved_data["corpus_ids"]
-                    # Limit to 10 results
-                    corpus_ids = corpus_ids[:10]
-                    
-                    # Get metadata for new papers only
-                    new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
-                    new_metadata = get_paper_metadata_from_index(self.dense_retriever, new_corpus_ids)
-                    
-                    # Update tracking
-                    seen_papers.update(new_corpus_ids)
-                    all_paper_metadata.extend(new_metadata)
-                    turn_new_papers.extend(new_metadata)
-                    
-                    tool_result = {
-                        "status": "success",
-                        "total_results": len(corpus_ids),
-                        "new_results": len(new_corpus_ids),
-                        "message": f"Found {len(corpus_ids)} papers ({len(new_corpus_ids)} new)",
-                        "corpus_ids": corpus_ids,  # Include all corpus IDs found
-                        "new_corpus_ids": new_corpus_ids,  # Include new corpus IDs
-                        "paper_metadata": new_metadata  # Include full metadata for new papers
-                    }
-                    
-                    if verbose:
-                        print(f"Results: {len(corpus_ids)} papers ({len(new_corpus_ids)} new)")
-                    
-                    turn_results["tool_calls"].append({
-                        "tool": tool_name,
-                        "text_query": text_query,
-                        "k": k,
-                        "arguments": tool_args,
-                        "result": tool_result
-                    })
-                    
-                    tool_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(tool_result)
-                    })
-                    
-                elif tool_name == "return_papers":
-                    corpus_ids = tool_args.get("corpus_ids", tool_args.get("paper_ids", []))  # Support both for backward compatibility
-                    reasoning = tool_args.get("reasoning", "")
-                    
-                    # Validate and limit to 10 papers
-                    final_corpus_ids = corpus_ids[:10]
-                    
-                    if verbose:
-                        print(f"Returning {len(final_corpus_ids)} papers")
-                        if reasoning:
-                            print(f"Reasoning: {reasoning}")
-                    
-                    turn_results["tool_calls"].append({
-                        "tool": tool_name,
-                        "arguments": tool_args,
-                        "corpus_ids": final_corpus_ids,
-                        "reasoning": reasoning
-                    })
-                    
-                    # Don't add tool message for return_papers - we're done
                     
             turns.append(turn_results)
             
@@ -617,19 +651,8 @@ class AgentRetriever:
             if final_corpus_ids:
                 break
             
-            # Add tool results and paper metadata to conversation
+            # Add tool results to conversation (agent reads tool JSON directly; no extra user metadata message)
             messages.extend(tool_messages)
-            
-            # Add paper metadata for next turn (top 10 papers with title and first 500 chars of abstract)
-            if turn_new_papers:
-                metadata_text = format_paper_metadata_for_prompt(turn_new_papers, max_papers=10)
-                user_message = {
-                    "role": "user",
-                    "content": f"Here are the top {min(len(turn_new_papers), 10)} papers retrieved (showing {len(turn_new_papers)} total):\n\n{metadata_text}\n\nYou can continue searching or return your final selection."
-                }
-                messages.append(user_message)
-                # Store the user message in turn results for logging
-                turn_results["user_feedback"] = user_message["content"]
             
             # Store tool messages in turn results
             turn_results["tool_messages"] = [
@@ -639,6 +662,26 @@ class AgentRetriever:
                     "content": tm["content"]
                 } for tm in tool_messages
             ]
+        
+        if not final_corpus_ids:
+            candidate_ids = [paper.get('corpus_id') for paper in all_paper_metadata if paper.get('corpus_id')]
+            if not candidate_ids:
+                candidate_ids = list(seen_papers)
+            final_corpus_ids = [cid for cid in candidate_ids if cid][:10]
+            
+            if final_corpus_ids:
+                fallback_reason = "Auto-selected best available papers after max turns without return_papers."
+                turns.append({
+                    "turn": "fallback_return",
+                    "assistant_message": {"content": "", "tool_calls": []},
+                    "tool_calls": [
+                        {
+                            "tool": "return_papers",
+                            "corpus_ids": final_corpus_ids,
+                            "reasoning": fallback_reason
+                        }
+                    ]
+                })
         
         return {
             "query": user_query,

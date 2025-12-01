@@ -84,7 +84,10 @@ INDEXES:
 
 
 def execute_sql_query(conn, sql_query: str) -> Optional[List[str]]:
-    """Execute SQL query and return list of corpus_ids (as strings for compatibility)."""
+    """Execute SQL query and return list of corpus_ids (as strings for compatibility).
+    
+    Limits results to at most 10 papers.
+    """
     cursor = conn.cursor()
     
     try:
@@ -101,7 +104,8 @@ def execute_sql_query(conn, sql_query: str) -> Optional[List[str]]:
         # Convert to strings for compatibility with dense retriever output
         corpus_ids = [str(row[corpus_id_idx]) for row in rows if row[corpus_id_idx] is not None]
         
-        return corpus_ids
+        # Limit to 10 results
+        return corpus_ids[:10]
         
     except Exception as e:
         conn.rollback()
@@ -214,8 +218,9 @@ Given a user's search query, you should strategically use these tools to find th
 2. After each tool call, you'll see the metadata (title, authors, abstract) of retrieved papers
 3. Use this information to decide if you need to search more or if you have enough results
 4. When you're confident you have found relevant papers, return your final list of paper IDs
-5. Return at most 20 paper IDs in your final answer, ordered by relevance
+5. Return at most 10 paper IDs in your final answer, ordered by relevance
 6. Avoid returning duplicate papers - track what you've already seen
+7. Each retrieval method (SQL or vector search) should return at most 10 papers
 
 **Strategy Tips:**
 - For queries with specific attributes (author, venue, year, citation count), start with SQL
@@ -238,7 +243,7 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                     "properties": {
                         "sql_query": {
                             "type": "string",
-                            "description": "A PostgreSQL SQL query to retrieve papers. Must include corpus_id in SELECT (v2 schema uses corpus_id as INTEGER primary key). Use ILIKE for case-insensitive text matching. Example: SELECT DISTINCT p.corpus_id FROM Papers p JOIN PaperAuthors pa ON p.corpus_id = pa.corpus_id JOIN Authors a ON pa.author_id = a.author_id WHERE a.name ILIKE '%Smith%' ORDER BY p.citation_count DESC LIMIT 50"
+                            "description": "A PostgreSQL SQL query to retrieve papers. Must include corpus_id in SELECT (v2 schema uses corpus_id as INTEGER primary key). Use ILIKE for case-insensitive text matching. IMPORTANT: Always include LIMIT 10 in your query to return at most 10 papers. Example: SELECT DISTINCT p.corpus_id FROM Papers p JOIN PaperAuthors pa ON p.corpus_id = pa.corpus_id JOIN Authors a ON pa.author_id = a.author_id WHERE a.name ILIKE '%Smith%' ORDER BY p.citation_count DESC LIMIT 10"
                         }
                     },
                     "required": ["sql_query"]
@@ -259,8 +264,8 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
                         },
                         "k": {
                             "type": "integer",
-                            "description": "Number of results to retrieve (default: 50, max: 100)",
-                            "default": 50
+                            "description": "Number of results to retrieve (default: 10, max: 10)",
+                            "default": 10
                         }
                     },
                     "required": ["text_query"]
@@ -271,15 +276,15 @@ def get_tool_definitions() -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "return_papers",
-                "description": "Return your final list of corpus IDs as the answer to the user's query. Call this when you're confident you have found the most relevant papers. You should return at most 20 corpus IDs ordered by relevance.",
+                "description": "Return your final list of corpus IDs as the answer to the user's query. Call this when you're confident you have found the most relevant papers. You should return at most 10 corpus IDs ordered by relevance.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "corpus_ids": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "List of corpus IDs to return, ordered by relevance (most relevant first). Maximum 20 papers.",
-                            "maxItems": 20
+                            "description": "List of corpus IDs to return, ordered by relevance (most relevant first). Maximum 10 papers.",
+                            "maxItems": 10
                         },
                         "reasoning": {
                             "type": "string",
@@ -367,7 +372,7 @@ class AgentRetriever:
             # Force termination at max_turns
             force_return = (turn_num == self.max_turns)
             if force_return:
-                force_msg = "\n\n**IMPORTANT: This is your final turn. You MUST call return_papers now with your best selection of up to 20 papers.**"
+                force_msg = "\n\n**IMPORTANT: This is your final turn. You MUST call return_papers now with your best selection of up to 10 papers.**"
                 messages.append({
                     "role": "user",
                     "content": force_msg
@@ -541,11 +546,13 @@ class AgentRetriever:
                     
                 elif tool_name == "query_vector_db":
                     text_query = tool_args.get("text_query", "")
-                    k = tool_args.get("k", 50)
-                    k = min(k, 100)  # Cap at 100
+                    k = tool_args.get("k", 10)
+                    k = min(k, 10)  # Cap at 10
                     
                     retrieved_data = self.dense_retriever.retrieve(text_query, k=k)
                     corpus_ids = retrieved_data["corpus_ids"]
+                    # Limit to 10 results
+                    corpus_ids = corpus_ids[:10]
                     
                     # Get metadata for new papers only
                     new_corpus_ids = [cid for cid in corpus_ids if cid not in seen_papers]
@@ -587,8 +594,8 @@ class AgentRetriever:
                     corpus_ids = tool_args.get("corpus_ids", tool_args.get("paper_ids", []))  # Support both for backward compatibility
                     reasoning = tool_args.get("reasoning", "")
                     
-                    # Validate and limit to 20 papers
-                    final_corpus_ids = corpus_ids[:20]
+                    # Validate and limit to 10 papers
+                    final_corpus_ids = corpus_ids[:10]
                     
                     if verbose:
                         print(f"Returning {len(final_corpus_ids)} papers")

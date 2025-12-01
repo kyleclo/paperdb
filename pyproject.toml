@@ -10,6 +10,7 @@ dependencies = [
     "sentence-transformers>=2.2.0",
 
     "transformers>=4.51.0",
+    "vllm==0.8.5.post1",
     "torch==2.6.0",
     "faiss-cpu",
     # "psycopg2",

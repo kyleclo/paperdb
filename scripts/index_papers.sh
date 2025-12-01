@@ -50,7 +50,7 @@ python $PROJECT_ROOT/db/index_dense_v2.py \
     --retrieval_units paragraphs abstracts \
     --output_dir $PROJECT_ROOT/data/index-para-abs-v2 \
     --model_name Qwen/Qwen3-Embedding-0.6B \
-    --batch_size 32
+    --batch_size 4096
 
 # Index dense retrieval (paragraphs and abstracts only)
 echo "Building dense index with all units..."
@@ -59,7 +59,7 @@ python $PROJECT_ROOT/db/index_dense_v2.py \
     --retrieval_units paragraphs abstracts title metadata \
     --output_dir $PROJECT_ROOT/data/index-all-units-v2 \
     --model_name Qwen/Qwen3-Embedding-0.6B \
-    --batch_size 32
+    --batch_size 4096
 
 # # Index relational database
 # echo "Building relational database index..."

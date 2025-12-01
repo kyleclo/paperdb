@@ -149,11 +149,11 @@ def process_api_response(response, log_first: bool = False) -> Dict[str, Any]:
 
         # Log first response for debugging
         if log_first:
-            result['raw_response'] = {
-                'model': response.model,
-                'id': response.id,
-                'finish_reason': response.choices[0].finish_reason
-            }
+            # result['raw_response'] = {
+            #     'model': response.model,
+            #     'id': response.id,
+            #     'finish_reason': response.choices[0].finish_reason
+            # }
             print(f"\n{'='*60}")
             print(f"DEBUG: First API Response")
             print(f"{'='*60}")
@@ -337,11 +337,12 @@ def main():
         print("\nProcessing results and executing SQL queries...")
         all_results = []
 
-        for i, (query_data, api_response) in enumerate(zip(queries, api_responses)):
+        for i, (query_data, api_response, messages) in enumerate(zip(queries, api_responses, messages_list)):
             # Handle API errors
             if isinstance(api_response, Exception):
                 result = {
                     'query': query_data.get('query', ''),
+                    'messages': messages,
                     'sql': None,
                     'error': str(api_response),
                     'input_tokens': 0,
@@ -363,6 +364,7 @@ def main():
             if not conn:
                 result = {
                     'query': query_data.get('query', ''),
+                    'messages': messages,
                     'sql': llm_result.get('sql'),
                     **{k: v for k, v in llm_result.items() if k not in ['sql']},
                     'error': 'Database connection lost and reconnection failed',
@@ -377,9 +379,10 @@ def main():
             # Execute SQL query
             result = execute_query_with_sql(conn, query_data.get('query', ''), llm_result)
 
-            # Add evaluation fields
+            # Add prompt and evaluation fields
             result['expected'] = query_data.get('corpus_id', query_data.get('corpusId', query_data.get('corpusid', query_data.get('paperId', ''))))
             result['retrieved'] = result['corpus_ids']
+            result['messages'] = messages
 
             all_results.append(result)
 

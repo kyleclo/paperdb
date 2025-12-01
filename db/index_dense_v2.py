@@ -159,7 +159,7 @@ def build_index(paper_file, retrieval_units, output_dir, model_name='Qwen/Qwen3-
     """Build retrieval index."""
     # Load tokenizer for text chunking (still needed for fulltext chunking)
     print(f"Loading tokenizer for text chunking: {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     # Load vllm model for embeddings
     print(f"Loading vllm model: {model_name}")
@@ -302,7 +302,7 @@ def main():
     parser.add_argument('--output_dir', type=str, required=True, help='Output directory')
     parser.add_argument('--model_name', type=str, default='Qwen/Qwen3-Embedding-0.6B',
                        help='Embedding model name')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=1024, help='Batch size')
     
     args = parser.parse_args()
     

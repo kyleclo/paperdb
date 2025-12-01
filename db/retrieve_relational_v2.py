@@ -96,8 +96,7 @@ Key requirements:
 - Return ONLY the SQL query, no explanations or markdown formatting
 - Always select at least the corpus_id column
 - Use ILIKE for case-insensitive partial text matching
-- When using DISTINCT, include all ORDER BY columns in the SELECT list
-  (e.g., SELECT DISTINCT corpus_id, citation_count, year ... ORDER BY citation_count DESC, year DESC)
+- When using SELECT DISTINCT, every ORDER BY expression must also be in the SELECT list.
 - Order by relevance (typically citation_count DESC, year DESC)
 - Limit to 100 results maximum
 - Do not end with semicolon
@@ -111,8 +110,10 @@ Use venue_type to distinguish main vs workshop papers."""
 Key requirements:
 - Return ONLY the SQL query, no explanations or markdown formatting
 - Always select at least the corpus_id column
+- When using SELECT DISTINCT, every ORDER BY expression must also be in the SELECT list.
 - Order by relevance
-- Limit to 100 results maximum"""
+- Limit to 100 results maximum
+"""
     else:
         raise ValueError(f"Invalid prompt_type: {prompt_type}. Must be 'minimal' or 'detailed'")
 

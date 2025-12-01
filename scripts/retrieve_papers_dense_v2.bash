@@ -10,32 +10,20 @@ source $PROJECT_ROOT/.venv/bin/activate
 export CUDA_VISIBLE_DEVICES=1
 index_query_output_list=(
     # # metadata_as_query 
-    "data/index-all-units-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.dense.all-units.results.jsonl"
-    "data/index-para-abs-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.dense.para-abs.results.jsonl"
+    # "data/index-all-units-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.dense.all-units.results.jsonl"
+    # "data/index-para-abs-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.dense.para-abs.results.jsonl"
     
-    # # # metadata_as_query 
-    # "data/index-all-units-v2 data/synth/metadata_as_query/train.jsonl results/metadata_as_query/train.dense-all-units.results.jsonl"
-    # "data/index-para-abs-v2 data/synth/metadata_as_query/train.jsonl results/metadata_as_query/train.dense-para-abs.results.jsonl"
-    
-    # # # metadata_as_query/train_td0.0_md0.0
-    # "data/index-all-units-v2 data/synth/metadata_as_query/train_td0.0_md0.0.jsonl results/metadata_as_query_td0.0_md0.0/train.dense-all-units.results.jsonl"
-    # "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.0.jsonl results/metadata_as_query_td0.0_md0.0/train.dense-para-abs.results.jsonl"
-    
-    # # # metadata_as_query/train_td0.4_md0.3
-    # "data/index-all-units-v2 data/synth/metadata_as_query/train_td0.4_md0.3.jsonl results/metadata_as_query_td0.4_md0.3/train.dense-all-units.results.jsonl"
-    # "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.4_md0.3.jsonl results/metadata_as_query_td0.4_md0.3/train.dense-para-abs.results.jsonl"
-    
-    # # # metadata_as_query/train_td0.4_md0.7
-    # "data/index-all-units-v2 data/synth/metadata_as_query/train_td0.4_md0.7.jsonl results/metadata_as_query_td0.4_md0.7/train.dense-all-units.results.jsonl"
-    # "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.4_md0.7.jsonl results/metadata_as_query_td0.4_md0.7/train.dense-para-abs.results.jsonl"
-    
-    # # # metadata_as_query/train_td0.7_md0.3
-    # "data/index-all-units-v2 data/synth/metadata_as_query/train_td0.7_md0.3.jsonl results/metadata_as_query_td0.7_md0.3/train.dense-all-units.results.jsonl"
-    # "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.7_md0.3.jsonl results/metadata_as_query_td0.7_md0.3/train.dense-para-abs.results.jsonl"
-    
-    # # # metadata_as_query/train_td0.7_md0.7
-    # "data/index-all-units-v2 data/synth/metadata_as_query/train_td0.7_md0.7.jsonl results/metadata_as_query_td0.7_md0.7/train.dense-all-units.results.jsonl"
-    # "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.7_md0.7.jsonl results/metadata_as_query_td0.7_md0.7/train.dense-para-abs.results.jsonl"
+    # metadata_as_query 
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.0.jsonl results/metadata_as_query_td0.0_md0.0/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.4_md0.0.jsonl results/metadata_as_query_td0.4_md0.0/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.0.jsonl results/metadata_as_query_td0.8_md0.0/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.4.jsonl results/metadata_as_query_td0.0_md0.4/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.4_md0.4.jsonl results/metadata_as_query_td0.4_md0.4/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.4.jsonl results/metadata_as_query_td0.8_md0.4/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.8.jsonl results/metadata_as_query_td0.0_md0.8/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.4_md0.8.jsonl results/metadata_as_query_td0.4_md0.8/train.dense.para-abs.results.jsonl"
+    "data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.8.jsonl results/metadata_as_query_td0.8_md0.8/train.dense.para-abs.results.jsonl"
+
 
     # # /mmfs1/home/chentong/ws/cse544/project/paperdb/data/synth/content_as_query/train_claude_key_passages.jsonl
     # "data/index-all-units-v2 data/synth/content_as_query/train_claude_key_passages.jsonl results/content_as_query-claude_key_passages/train.dense-all-units.results.jsonl"

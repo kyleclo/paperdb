@@ -29,6 +29,12 @@ source $PROJECT_ROOT/.venv/bin/activate
 # find $PROJECT_ROOT/results -name "*.results.jsonl" -exec python $PROJECT_ROOT/eval/score.py {} {}.metrics.json \;
 find $PROJECT_ROOT/results -name "*.results.jsonl" | while read results_file; do
     metrics_file=$(echo $results_file | sed 's/.results.jsonl$/.metrics.json/')
+    if [ -f "$metrics_file" ]; then
+        # echo "Skipping $results_file; metrics already at $metrics_file"
+        # continue
+        echo ""
+    fi
+
     echo "Computing scores for $results_file -> $metrics_file"
     python $PROJECT_ROOT/eval/score.py \
         "$results_file" \

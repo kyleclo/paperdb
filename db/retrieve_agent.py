@@ -212,6 +212,7 @@ Given a user's search query, you should strategically use these tools to find th
 
 **SQL Query Requirements (when using query_relational_db):**
 - Always select at least the corpus_id column
+- When using SELECT DISTINCT, every ORDER BY expression must also be in the SELECT list.
 - Order by relevance
 - Limit to 10 results maximum
 

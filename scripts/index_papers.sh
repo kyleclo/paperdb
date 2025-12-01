@@ -3,6 +3,8 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel)
 # uv virtual environment
 source $PROJECT_ROOT/.venv/bin/activate
 
+export CUDA_VISIBLE_DEVICES=1
+
 # # start the postgres server
 # pg_ctl -D /mmfs1/home/chentong/ws/cse544/project/.db start
 # # create the database
@@ -48,18 +50,28 @@ DB_PORT=${PAPERDB_PORT:-5432}
 python $PROJECT_ROOT/db/index_dense_v2.py \
     --paper_file $PROJECT_ROOT/data/dblp-papers-fulltext/dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl \
     --retrieval_units paragraphs abstracts \
-    --output_dir $PROJECT_ROOT/data/index-para-abs-v2 \
+    --output_dir $PROJECT_ROOT/data/index-para-abs-v2-test \
     --model_name Qwen/Qwen3-Embedding-0.6B \
-    --batch_size 4096
+    --batch_size 4096 \
+    --test
 
-# Index dense retrieval (paragraphs and abstracts only)
-echo "Building dense index with all units..."
-python $PROJECT_ROOT/db/index_dense_v2.py \
-    --paper_file $PROJECT_ROOT/data/dblp-papers-fulltext/dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl \
-    --retrieval_units paragraphs abstracts title metadata \
-    --output_dir $PROJECT_ROOT/data/index-all-units-v2 \
-    --model_name Qwen/Qwen3-Embedding-0.6B \
-    --batch_size 4096
+# # # Index dense retrieval (paragraphs and abstracts only)
+# # echo "Building dense index with paragraphs and abstracts..."
+# python $PROJECT_ROOT/db/index_dense_v2.py \
+#     --paper_file $PROJECT_ROOT/data/dblp-papers-fulltext/dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl \
+#     --retrieval_units paragraphs abstracts \
+#     --output_dir $PROJECT_ROOT/data/index-para-abs-v2 \
+#     --model_name Qwen/Qwen3-Embedding-0.6B \
+#     --batch_size 4096
+
+# # Index dense retrieval (paragraphs and abstracts only)
+# echo "Building dense index with all units..."
+# python $PROJECT_ROOT/db/index_dense_v2.py \
+#     --paper_file $PROJECT_ROOT/data/dblp-papers-fulltext/dblp-nlp-ml-ai-oa-recent-with-fulltext-tagged.jsonl \
+#     --retrieval_units paragraphs abstracts title metadata \
+#     --output_dir $PROJECT_ROOT/data/index-all-units-v2 \
+#     --model_name Qwen/Qwen3-Embedding-0.6B \
+#     --batch_size 4096
 
 # # Index relational database
 # echo "Building relational database index..."

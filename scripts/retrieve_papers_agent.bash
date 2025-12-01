@@ -11,23 +11,27 @@ DB_USER=${PAPERDB_USER:-$USER}
 DB_PASSWORD=${PAPERDB_PASSWORD:-"your_password"}
 DB_HOST=${PAPERDB_HOST:-"localhost"}
 DB_PORT=${PAPERDB_PORT:-5432}
-MODEL=${OPENAI_MODEL:-"gpt-4o"}
-MAX_TURNS=${MAX_TURNS:-5}
+MODEL=${OPENAI_MODEL:-"gpt-5.1"}
+MAX_TURNS=${MAX_TURNS:-3}
 
+export CUDA_VISIBLE_DEVICES=1
 index_query_output_list=(
     # title_as_query
-    # "data/index-all-units-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.agent-all-units.results.jsonl"
-    "data/index-para-abs-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.agent.para-abs.results.jsonl"
+    # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/title_as_query/train.jsonl results/title_as_query/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+
+    # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.8.jsonl results/metadata_as_query_td0.8_md0.8/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+    # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.0.jsonl results/metadata_as_query_td0.0_md0.0/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+    # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.8.jsonl results/metadata_as_query_td0.0_md0.8/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+    "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.0.jsonl results/metadata_as_query_td0.8_md0.0/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
 )
 
-echo "Agent Retrieval | DB: $DB_NAME | Model: $MODEL | Max Turns: $MAX_TURNS"
+echo "Agent Retrieval | DB: $DB_NAME"
 
 for args in "${index_query_output_list[@]}"; do
-    index_dir=$(echo $args | awk '{print $1}')  
-    query_file=$(echo $args | awk '{print $2}')
-    output_file=$(echo $args | awk '{print $3}')
-    
-    echo "Processing: $index_dir | $query_file → $output_file"
+    read model max_turns index_dir query_file output_file <<< "$args"
+    # remove the "max-turns-" prefix
+    max_turns=${max_turns#"max-turns-"}
+    echo "Processing: $model | max turns: $max_turns | index: $index_dir | query: $query_file → $output_file"
     
     python $PROJECT_ROOT/db/retrieve_agent.py \
         --db_name $DB_NAME \
@@ -38,6 +42,6 @@ for args in "${index_query_output_list[@]}"; do
         --index_path $PROJECT_ROOT/$index_dir \
         --query_file $PROJECT_ROOT/$query_file \
         --output_file $PROJECT_ROOT/$output_file \
-        --model $MODEL \
-        --max_turns $MAX_TURNS
+        --model $model \
+        --max_turns $max_turns
 done

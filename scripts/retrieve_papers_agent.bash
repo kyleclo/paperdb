@@ -22,7 +22,10 @@ index_query_output_list=(
     # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.8.jsonl results/metadata_as_query_td0.8_md0.8/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
     # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.0.jsonl results/metadata_as_query_td0.0_md0.0/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
     # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.0_md0.8.jsonl results/metadata_as_query_td0.0_md0.8/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
-    "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.0.jsonl results/metadata_as_query_td0.8_md0.0/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+    # "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/metadata_as_query/train_td0.8_md0.0.jsonl results/metadata_as_query_td0.8_md0.0/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+
+    "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/content_as_query/train_gpt_key_passages.jsonl results/content_as_query_gpt_key_passages/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
+    "gpt-5.1 max-turns-3 data/index-para-abs-v2 data/synth/content_as_query/train_gpt_keywords.jsonl results/content_as_query_gpt_keywords/train.agent.gpt-51.max-turns-3.para-abs.results.jsonl"
 )
 
 echo "Agent Retrieval | DB: $DB_NAME"

@@ -326,6 +326,112 @@ def create_dropout_plots(metrics_data: list, output_dir: Path):
     plt.close()
 
 
+def create_content_query_comparison_plot(metrics_data: list, output_dir: Path):
+    """Create boxplot comparing keywords vs key_passages for content queries using per-query results."""
+    # Find and load actual results files (not just metrics)
+    content_results = defaultdict(lambda: defaultdict(lambda: {"hits@1": [], "hits@5": []}))
+
+    results_dir = output_dir
+
+    # Load per-query results from *.results.jsonl files
+    for results_file in results_dir.rglob("*.results.jsonl"):
+        # Parse path: results/{dataset}/train.{method}.results.jsonl
+        relative_path = results_file.relative_to(results_dir)
+        dataset = relative_path.parts[0]
+        filename = relative_path.parts[-1]
+
+        # Check if this is a content query dataset
+        if "content_as_query_gpt_keywords" in dataset:
+            style = "keywords"
+        elif "content_as_query_gpt_key_passages" in dataset:
+            style = "key_passages"
+        else:
+            continue
+
+        # Extract method from filename
+        filename_base = filename.replace(".results.jsonl", "")
+        parts = filename_base.split(".", 1)
+        if len(parts) != 2:
+            continue
+        split, method = parts
+
+        # Skip old relational methods
+        if method in ["relational-detailed", "relational-minimal"]:
+            continue
+
+        # Load per-query results
+        with open(results_file) as f:
+            for line in f:
+                result = json.loads(line)
+                expected = result.get('expected')
+                retrieved = result.get('retrieved', [])
+
+                # Normalize types (agent returns strings, relational returns ints)
+                expected_str = str(expected)
+                retrieved_str = [str(r) for r in retrieved]
+
+                # Calculate per-query metrics (binary: 0 or 100)
+                hits_at_1 = 100 if expected_str in retrieved_str[:1] else 0
+                hits_at_5 = 100 if expected_str in retrieved_str[:5] else 0
+
+                content_results[method][style]["hits@1"].append(hits_at_1)
+                content_results[method][style]["hits@5"].append(hits_at_5)
+
+    if not content_results:
+        print("No content_as_query results found, skipping content query comparison plot")
+        return
+
+    # Create plot with two panels (Hits@1 and Hits@5)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+    methods = sorted(content_results.keys())
+    styles = ["keywords", "key_passages"]
+    colors = plt.cm.tab10(range(len(methods)))
+
+    for metric_idx, (metric_name, ax) in enumerate([("hits@1", ax1), ("hits@5", ax2)]):
+        # Calculate means for each method/style (like metadata plots)
+        x = np.arange(len(styles))
+        width = 0.25
+
+        for method_idx, method in enumerate(methods):
+            means = []
+            for style in styles:
+                values = content_results[method][style][metric_name]
+                mean_val = np.mean(values) if values else 0
+                means.append(mean_val)
+
+            # Create bars with offset for each method
+            offset = (method_idx - len(methods)/2 + 0.5) * width
+            bars = ax.bar(x + offset, means, width,
+                         label=method, color=colors[method_idx],
+                         alpha=0.7, edgecolor='black', linewidth=1)
+
+            # Add value labels
+            for bar in bars:
+                height = bar.get_height()
+                if height > 2:  # Only label if significant
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                           f'{height:.0f}%',
+                           ha='center', va='bottom', fontsize=10, fontweight='bold')
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([s.replace('_', ' ').title() for s in styles], fontsize=14)
+        ax.set_xlabel("Extraction Style", fontsize=16)
+        ax.set_ylabel(f"{metric_name.upper().replace('@', ' @ ')} (%)", fontsize=16)
+        ax.tick_params(axis='y', labelsize=14)
+        ax.legend(loc='best', fontsize=12)
+        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_ylim(0, 105)
+
+    fig.suptitle("Content Query Comparison: Keywords vs Key Passages", fontsize=18)
+    plt.tight_layout()
+
+    output_path = output_dir / "content_query_style_comparison.png"
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    print(f"Content query comparison plot saved to: {output_path}")
+    plt.close()
+
+
 def main():
     results_dir = Path(__file__).parent.parent / "results"
 
@@ -353,6 +459,7 @@ def main():
     print("\nGenerating plots...")
     create_query_type_comparison_plot(metrics_data, results_dir)
     create_dropout_plots(metrics_data, results_dir)
+    create_content_query_comparison_plot(metrics_data, results_dir)
 
 
 if __name__ == "__main__":
